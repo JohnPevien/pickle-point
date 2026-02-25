@@ -22,8 +22,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const theme = process.env.THEME || "";
+
   return (
-    <html lang="en">
+    <html lang="en" className={theme ? `theme-${theme}` : ""}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
