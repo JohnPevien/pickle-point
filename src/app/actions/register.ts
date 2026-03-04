@@ -78,7 +78,7 @@ export async function registerTeamAction(tenantId: string, formData: z.infer<typ
   } catch (error) {
     if (error instanceof z.ZodError) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return { success: false, error: "Validation failed: " + (error as any).errors[0].message };
+      return { success: false, error: "Validation failed: " + (error as any).issues[0].message };
     }
     console.error("Registration error:", error);
     return { success: false, error: "An unexpected error occurred during registration." };
