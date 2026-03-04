@@ -44,6 +44,12 @@ export const teams = sqliteTable("teams", {
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
 });
 
+// 4.5. Tournament Teams (Many-to-Many linking Tournaments and Teams)
+export const tournamentTeams = sqliteTable("tournament_teams", {
+  tournamentId: text("tournament_id").notNull().references(() => tournaments.id),
+  teamId: text("team_id").notNull().references(() => teams.id),
+});
+
 // 5. Team Members (Many-to-Many linking Teams and Participants)
 export const teamMembers = sqliteTable("team_members", {
   teamId: text("team_id").notNull().references(() => teams.id),

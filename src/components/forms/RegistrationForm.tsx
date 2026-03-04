@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
-export function RegistrationForm({ tenantId }: { tenantId: string }) {
+export function RegistrationForm({ tenantId, tournamentId }: { tenantId: string, tournamentId: string }) {
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<RegistrationFormValues>({
@@ -38,7 +38,7 @@ export function RegistrationForm({ tenantId }: { tenantId: string }) {
 
   function onSubmit(values: RegistrationFormValues) {
     startTransition(async () => {
-      const result = await registerTeamAction(tenantId, values);
+      const result = await registerTeamAction(tenantId, tournamentId, values);
       if (result.success) {
         toast.success("Team registered successfully!");
         form.reset();

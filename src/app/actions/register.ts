@@ -1,12 +1,12 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { participants, teams, teamMembers } from "@/lib/db/schema";
+import { participants, teams, teamMembers, tournamentTeams } from "@/lib/db/schema";
 import { registrationSchema } from "@/lib/validations/registration";
 import { eq, and, or, inArray } from "drizzle-orm";
 import { z } from "zod";
 
-export async function registerTeamAction(tenantId: string, formData: z.infer<typeof registrationSchema>) {
+export async function registerTeamAction(tenantId: string, tournamentId: string, formData: z.infer<typeof registrationSchema>) {
   try {
     const data = registrationSchema.parse(formData);
 
@@ -71,6 +71,12 @@ export async function registerTeamAction(tenantId: string, formData: z.infer<typ
         { teamId, participantId: p1Id },
         { teamId, participantId: p2Id }
       ]);
+
+      // Link team to tournament
+      await tx.insert(tournamentTeams).values({
+        tournamentId,
+        teamId,
+      });
     });
 
     return { success: true };
