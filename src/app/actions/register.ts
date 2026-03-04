@@ -10,29 +10,28 @@ export async function registerTeamAction(tenantId: string, formData: z.infer<typ
   try {
     const data = registrationSchema.parse(formData);
 
-    // 1. Duplicate check for emails/phones within this tenant
-    const emailsToCheck = [data.player1.email, data.player2.email].filter(Boolean) as string[];
-    const phonesToCheck = [data.player1.phone, data.player2.phone].filter(Boolean) as string[];
-
-    const duplicateChecks = [];
-    if (emailsToCheck.length > 0) duplicateChecks.push(inArray(participants.email, emailsToCheck));
-    if (phonesToCheck.length > 0) duplicateChecks.push(inArray(participants.phone, phonesToCheck));
-
-    if (duplicateChecks.length > 0) {
-      const existingParticipants = await db.select().from(participants).where(
-        and(
-          eq(participants.tenantId, tenantId),
-          or(...duplicateChecks)
-        )
-      );
-
-      if (existingParticipants.length > 0) {
-        return { success: false, error: "One or more participants are already registered with this email or phone number for this event." };
-      }
-    }
-
-    // 2. Database Transaction
+    // Database Transaction
     await db.transaction(async (tx) => {
+      // 1. Duplicate check for emails/phones within this tenant (inside transaction for atomicity)
+      const emailsToCheck = [data.player1.email, data.player2.email].filter(Boolean) as string[];
+      const phonesToCheck = [data.player1.phone, data.player2.phone].filter(Boolean) as string[];
+
+      const duplicateChecks = [];
+      if (emailsToCheck.length > 0) duplicateChecks.push(inArray(participants.email, emailsToCheck));
+      if (phonesToCheck.length > 0) duplicateChecks.push(inArray(participants.phone, phonesToCheck));
+
+      if (duplicateChecks.length > 0) {
+        const existingParticipants = await tx.select().from(participants).where(
+          and(
+            eq(participants.tenantId, tenantId),
+            or(...duplicateChecks)
+          )
+        );
+
+        if (existingParticipants.length > 0) {
+          throw new Error("DUPLICATE_PARTICIPANT");
+        }
+      }
       const p1Id = crypto.randomUUID();
       const p2Id = crypto.randomUUID();
       const teamId = crypto.randomUUID();
@@ -76,6 +75,9 @@ export async function registerTeamAction(tenantId: string, formData: z.infer<typ
 
     return { success: true };
   } catch (error) {
+    if (error instanceof Error && error.message === "DUPLICATE_PARTICIPANT") {
+      return { success: false, error: "One or more participants are already registered with this email or phone number for this event." };
+    }
     if (error instanceof z.ZodError) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { success: false, error: "Validation failed: " + (error as any).issues[0].message };
