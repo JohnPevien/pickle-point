@@ -4,8 +4,8 @@ import { eq, desc, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/admin/DashboardView";
 
-export default async function AdminDashboardPage({ params }: { params: Promise<{ tenant: string }> }) {
-  const { tenant } = await params;
+export default async function AdminDashboardPage({ params }: { params: { tenant: string } }) {
+  const { tenant } = params;
 
   const [tenantData] = await db.select().from(tenants).where(eq(tenants.id, tenant));
 

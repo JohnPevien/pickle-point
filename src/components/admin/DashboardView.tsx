@@ -83,7 +83,7 @@ export function DashboardView({
            <Button 
              onClick={handleGenerateBracket} 
              disabled={isPending || activeTournament.status === "in_progress" || teams.length < 2}
-             className="bg-(--tenant-primary)"
+             className="bg-[var(--tenant-primary)]"
            >
              {isPending ? "Processing..." : activeTournament.status === "in_progress" ? "Bracket Locked" : "Generate Bracket"}
            </Button>
