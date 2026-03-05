@@ -1,62 +1,106 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { participants, teams, teamMembers, tournamentTeams } from "@/lib/db/schema";
-import { registrationSchema } from "@/lib/validations/registration";
-import { eq, and, or, inArray } from "drizzle-orm";
-import { z } from "zod";
+import { participants, teams, teamMembers, tournamentTeams, tournaments } from "@/lib/db/schema";
+import { eq, and, or } from "drizzle-orm";
+import { z } from "zod"; // Keep z for error handling, even if schema.parse is removed
 
-export async function registerTeamAction(tenantId: string, tournamentId: string, formData: z.infer<typeof registrationSchema>) {
+export async function registerTeamAction(
+  tenantId: string,
+  tournamentId: string,
+  data: {
+    teamName: string;
+    skillTier: "Beginner" | "Novice" | "Low Intermediate" | "Intermediate";
+    player1: { firstName: string; lastName: string; email?: string; phone?: string; optIn: boolean };
+    player2: { firstName: string; lastName: string; email?: string; phone?: string; optIn: boolean };
+  }
+) {
   try {
-    const data = registrationSchema.parse(formData);
+    // 1. Verify the tournament belongs to the tenant and is open for registration
+    const activeTournament = await db.select().from(tournaments).where(
+      and(
+        eq(tournaments.id, tournamentId),
+        eq(tournaments.tenantId, tenantId)
+      )
+    ).get();
 
-    // Database Transaction
+    if (!activeTournament || activeTournament.status !== "registration_open") {
+      return { success: false, error: "This tournament is currently not accepting registrations." };
+    }
+
+    // Helper to check for existing participants specifically within THIS tournament
+    const findExistingParticipantInTournament = async (email?: string, phone?: string) => {
+      if (!email && !phone) return null;
+
+      const conditions = [];
+      if (email) conditions.push(eq(participants.email, email));
+      if (phone) conditions.push(eq(participants.phone, phone));
+
+      const pIdQuery = await db.select({ id: participants.id })
+                               .from(participants)
+                               .where(
+                                 and(
+                                    eq(participants.tenantId, tenantId),
+                                    or(...conditions)
+                                 )
+                               )
+                               .get();
+      if (!pIdQuery) return null; // Participant doesn't exist at all
+
+      // Check if they are in this specific tournament
+      const inTournament = await db.select().from(teamMembers)
+                                   .innerJoin(tournamentTeams, eq(teamMembers.teamId, tournamentTeams.teamId))
+                                   .where(
+                                     and(
+                                       eq(teamMembers.participantId, pIdQuery.id),
+                                       eq(tournamentTeams.tournamentId, tournamentId)
+                                     )
+                                   ).get();
+      
+      return {
+        participantId: pIdQuery.id,
+        isRegisteredForThisTournament: !!inTournament
+      };
+    };
+
+    const p1Check = await findExistingParticipantInTournament(data.player1.email, data.player1.phone);
+    const p2Check = await findExistingParticipantInTournament(data.player2.email, data.player2.phone);
+
+    if (p1Check?.isRegisteredForThisTournament || p2Check?.isRegisteredForThisTournament) {
+      return { success: false, error: "One or both players are already registered for this tournament." };
+    }
+
+    // 2. Perform database insertions atomically via transaction
     await db.transaction(async (tx) => {
-      // 1. Duplicate check for emails/phones within this tenant (inside transaction for atomicity)
-      const emailsToCheck = [data.player1.email, data.player2.email].filter(Boolean) as string[];
-      const phonesToCheck = [data.player1.phone, data.player2.phone].filter(Boolean) as string[];
-
-      const duplicateChecks = [];
-      if (emailsToCheck.length > 0) duplicateChecks.push(inArray(participants.email, emailsToCheck));
-      if (phonesToCheck.length > 0) duplicateChecks.push(inArray(participants.phone, phonesToCheck));
-
-      if (duplicateChecks.length > 0) {
-        const existingParticipants = await tx.select().from(participants).where(
-          and(
-            eq(participants.tenantId, tenantId),
-            or(...duplicateChecks)
-          )
-        );
-
-        if (existingParticipants.length > 0) {
-          throw new Error("DUPLICATE_PARTICIPANT");
-        }
+      let p1Id = p1Check?.participantId;
+      if (!p1Id) {
+          p1Id = crypto.randomUUID();
+          await tx.insert(participants).values({
+            id: p1Id,
+            tenantId,
+            firstName: data.player1.firstName,
+            lastName: data.player1.lastName,
+            email: data.player1.email,
+            phone: data.player1.phone || null,
+            optIn: data.player1.optIn,
+          });
       }
-      const p1Id = crypto.randomUUID();
-      const p2Id = crypto.randomUUID();
-      const teamId = crypto.randomUUID();
 
-      // Insert Participants
-      await tx.insert(participants).values([
-        {
-          id: p1Id,
-          tenantId,
-          firstName: data.player1.firstName,
-          lastName: data.player1.lastName,
-          email: data.player1.email || null,
-          phone: data.player1.phone || null,
-          optIn: data.player1.optIn,
-        },
-        {
-          id: p2Id,
-          tenantId,
-          firstName: data.player2.firstName,
-          lastName: data.player2.lastName,
-          email: data.player2.email || null,
-          phone: data.player2.phone || null,
-          optIn: data.player2.optIn,
-        }
-      ]);
+      let p2Id = p2Check?.participantId;
+      if (!p2Id) {
+          p2Id = crypto.randomUUID();
+          await tx.insert(participants).values({
+            id: p2Id,
+            tenantId,
+            firstName: data.player2.firstName,
+            lastName: data.player2.lastName,
+            email: data.player2.email,
+            phone: data.player2.phone || null,
+            optIn: data.player2.optIn,
+          });
+      }
+
+      const teamId = crypto.randomUUID();
 
       // Insert Team
       await tx.insert(teams).values({
@@ -81,9 +125,8 @@ export async function registerTeamAction(tenantId: string, tournamentId: string,
 
     return { success: true };
   } catch (error) {
-    if (error instanceof Error && error.message === "DUPLICATE_PARTICIPANT") {
-      return { success: false, error: "One or more participants are already registered with this email or phone number for this event." };
-    }
+    // The original DUPLICATE_PARTICIPANT error is now handled by the specific tournament check
+    // and returns a more specific message.
     if (error instanceof z.ZodError) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { success: false, error: "Validation failed: " + (error as any).issues[0].message };
