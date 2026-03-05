@@ -47,8 +47,7 @@ export async function generateBracketAction(tenantId: string, tournamentId: stri
     }, {} as Record<string, typeof registeredTeams>);
 
     // 4. Generate the round robin matches per tier
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const matchesToInsert: any[] = [];
+    const matchesToInsert: (typeof matches.$inferInsert)[] = [];
 
     for (const tierTeams of Object.values(teamsByTier)) {
       if (tierTeams.length < 2) continue; // Can't play against themselves

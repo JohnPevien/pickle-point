@@ -58,13 +58,33 @@ export function generateRoundRobinMatches(teams: TeamMinimal[]): Match[] {
       const t2 = team2.id === "BYE" ? null : team2;
 
       // Only add if at least one actual team is playing
-      if (t1 || t2) {
-         matches.push({
-           round: round + 1,
-           team1: t1 || t2!, // Guarantees team1 is an actual team
-           team2: t1 && t2 ? t2 : null // team2 is null if played vs BYE
-         });
+      // Only generate a real match if team1 isn't a Bye (which shouldn't happen based on dummy logic, but safe to check) and team2 isn't a Bye.
+      // Actually, if we hit a Dummy, we either map to null (Bye) or actual team.
+      const matchTeam1 = t1 && t1.id !== "dummy" ? t1 : null;
+      const matchTeam2 = t2 && t2.id !== "dummy" ? t2 : null;
+
+      // If both are null (Dummy vs Dummy), we skip.
+      if (!matchTeam1 && !matchTeam2) continue;
+
+      // We need a guaranteed actual team for team1 to satisfy the Match type
+      let finalTeam1 = matchTeam1;
+      let finalTeam2 = matchTeam2;
+
+      // If team1 is null (a BYE Dummy) and team2 is an actual team, swap them
+      // so the actual team is always team1 and team2 is the BYE (null).
+      if (!finalTeam1 && finalTeam2) {
+        finalTeam1 = finalTeam2;
+        finalTeam2 = null;
       }
+      
+      // If after swap, we still don't have a team1, skip the match
+      if (!finalTeam1) continue;
+
+      matches.push({
+        round: round + 1,
+        team1: finalTeam1,
+        team2: finalTeam2,
+      });
     }
   }
 
