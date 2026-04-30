@@ -1,10 +1,22 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Russo_One, Chakra_Petch } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const russoOne = Russo_One({
+  weight: "400",
+  variable: "--font-russo-one",
+  subsets: ["latin"],
+});
+
+const chakraPetch = Chakra_Petch({
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-chakra-petch",
   subsets: ["latin"],
 });
 
@@ -23,12 +35,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const theme = process.env.THEME || "";
+  const ALLOWED_THEMES = ["gaming", "blackpink"] as const;
+  const rawTheme = process.env.THEME || "";
+  const theme = ALLOWED_THEMES.includes(rawTheme as (typeof ALLOWED_THEMES)[number]) ? rawTheme : "";
 
   return (
     <html lang="en" className={theme ? `theme-${theme}` : ""}>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${russoOne.variable} ${chakraPetch.variable} ${geistMono.variable} antialiased`}
       >
         {children}
         <Toaster />

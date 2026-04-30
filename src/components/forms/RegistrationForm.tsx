@@ -25,7 +25,6 @@ export function RegistrationForm({ tenantId, tournamentId }: { tenantId: string,
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<RegistrationFormValues>({
-    // @ts-expect-error Type mismatch between Zod and RHF internally
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(registrationSchema) as any,
     defaultValues: {
