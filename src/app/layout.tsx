@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Russo_One, Chakra_Petch } from "next/font/google";
+import { RootProvider } from "fumadocs-ui/provider/next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -40,12 +41,14 @@ export default function RootLayout({
   const theme = ALLOWED_THEMES.includes(rawTheme as (typeof ALLOWED_THEMES)[number]) ? rawTheme : "";
 
   return (
-    <html lang="en" className={theme ? `theme-${theme}` : ""}>
+    <html lang="en" className={theme ? `theme-${theme}` : ""} suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${russoOne.variable} ${chakraPetch.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${russoOne.variable} ${chakraPetch.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}
       >
-        {children}
-        <Toaster />
+        <RootProvider>
+          {children}
+          <Toaster />
+        </RootProvider>
       </body>
     </html>
   );
