@@ -32,7 +32,12 @@ export async function generateBracketAction(tenantId: string, tournamentId: stri
       })
       .from(teams)
       .innerJoin(tournamentTeams, eq(teams.id, tournamentTeams.teamId))
-      .where(eq(tournamentTeams.tournamentId, tournamentId));
+      .where(
+        and(
+          eq(tournamentTeams.tournamentId, tournamentId),
+          eq(teams.tenantId, tenantId)
+        )
+      );
 
     if (registeredTeams.length < 2) {
       return { success: false, error: "Not enough teams registered to generate a bracket." };

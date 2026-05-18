@@ -2,20 +2,43 @@
 
 import { db } from "@/lib/db";
 import { participants, teams, teamMembers, tournamentTeams, tournaments } from "@/lib/db/schema";
-import { eq, and, or } from "drizzle-orm";
-import { z } from "zod"; // Keep z for error handling, even if schema.parse is removed
+import { registrationSchema, type RegistrationFormValues } from "@/lib/validations/registration";
+import { eq, and, or, type SQL } from "drizzle-orm";
 
 export async function registerTeamAction(
   tenantId: string,
   tournamentId: string,
-  data: {
-    teamName: string;
-    skillTier: "Beginner" | "Novice" | "Low Intermediate" | "Intermediate";
-    player1: { firstName: string; lastName: string; email?: string; phone?: string; optIn: boolean };
-    player2: { firstName: string; lastName: string; email?: string; phone?: string; optIn: boolean };
-  }
+  data: RegistrationFormValues
 ) {
   try {
+    const validation = registrationSchema.safeParse(data);
+
+    if (!validation.success) {
+      const firstIssue = validation.error.issues[0]?.message ?? "Invalid registration data.";
+      return { success: false, error: `Validation failed: ${firstIssue}` };
+    }
+
+    const normalizeContact = (value?: string | null) => {
+      const normalized = value?.trim();
+      return normalized ? normalized : null;
+    };
+
+    const validatedData = validation.data;
+    const player1 = {
+      ...validatedData.player1,
+      email: normalizeContact(validatedData.player1.email),
+      phone: normalizeContact(validatedData.player1.phone),
+    };
+    const player2 = {
+      ...validatedData.player2,
+      email: normalizeContact(validatedData.player2.email),
+      phone: normalizeContact(validatedData.player2.phone),
+    };
+
+    if ((!player1.email && !player1.phone) || (!player2.email && !player2.phone)) {
+      return { success: false, error: "Validation failed: Either email or phone is required to register" };
+    }
+
     // 1. Verify the tournament belongs to the tenant and is open for registration
     const activeTournament = await db.select().from(tournaments).where(
       and(
@@ -29,10 +52,10 @@ export async function registerTeamAction(
     }
 
     // Helper to check for existing participants specifically within THIS tournament
-    const findExistingParticipantInTournament = async (email?: string, phone?: string) => {
+    const findExistingParticipantInTournament = async (email: string | null, phone: string | null) => {
       if (!email && !phone) return null;
 
-      const conditions = [];
+      const conditions: SQL[] = [];
       if (email) conditions.push(eq(participants.email, email));
       if (phone) conditions.push(eq(participants.phone, phone));
 
@@ -63,8 +86,8 @@ export async function registerTeamAction(
       };
     };
 
-    const p1Check = await findExistingParticipantInTournament(data.player1.email, data.player1.phone);
-    const p2Check = await findExistingParticipantInTournament(data.player2.email, data.player2.phone);
+    const p1Check = await findExistingParticipantInTournament(player1.email, player1.phone);
+    const p2Check = await findExistingParticipantInTournament(player2.email, player2.phone);
 
     if (p1Check?.isRegisteredForThisTournament || p2Check?.isRegisteredForThisTournament) {
       return { success: false, error: "One or both players are already registered for this tournament." };
@@ -78,11 +101,11 @@ export async function registerTeamAction(
           await tx.insert(participants).values({
             id: p1Id,
             tenantId,
-            firstName: data.player1.firstName,
-            lastName: data.player1.lastName,
-            email: data.player1.email,
-            phone: data.player1.phone || null,
-            optIn: data.player1.optIn,
+            firstName: player1.firstName,
+            lastName: player1.lastName,
+            email: player1.email,
+            phone: player1.phone,
+            optIn: player1.optIn,
           });
       }
 
@@ -92,11 +115,11 @@ export async function registerTeamAction(
           await tx.insert(participants).values({
             id: p2Id,
             tenantId,
-            firstName: data.player2.firstName,
-            lastName: data.player2.lastName,
-            email: data.player2.email,
-            phone: data.player2.phone || null,
-            optIn: data.player2.optIn,
+            firstName: player2.firstName,
+            lastName: player2.lastName,
+            email: player2.email,
+            phone: player2.phone,
+            optIn: player2.optIn,
           });
       }
 
@@ -106,8 +129,8 @@ export async function registerTeamAction(
       await tx.insert(teams).values({
         id: teamId,
         tenantId,
-        name: data.teamName,
-        skillTier: data.skillTier,
+        name: validatedData.teamName,
+        skillTier: validatedData.skillTier,
       });
 
       // Link in teamMembers
@@ -125,12 +148,6 @@ export async function registerTeamAction(
 
     return { success: true };
   } catch (error) {
-    // The original DUPLICATE_PARTICIPANT error is now handled by the specific tournament check
-    // and returns a more specific message.
-    if (error instanceof z.ZodError) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return { success: false, error: "Validation failed: " + (error as any).issues[0].message };
-    }
     console.error("Registration error:", error);
     return { success: false, error: "An unexpected error occurred during registration." };
   }

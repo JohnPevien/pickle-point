@@ -14,7 +14,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ tenan
     notFound();
   }
 
-  // Fetch the active tournament for this tenant (Draft or Registration Open)
+  // Fetch the registration-open tournament for this tenant.
   const [activeTournament] = await db.select().from(tournaments).where(
     and(
       eq(tournaments.tenantId, tenant),

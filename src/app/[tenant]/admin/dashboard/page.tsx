@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { tenants, tournaments, teams, tournamentTeams, teamMembers, participants } from "@/lib/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/admin/DashboardView";
 
@@ -32,7 +32,12 @@ export default async function AdminDashboardPage({ params }: { params: { tenant:
       })
       .from(teams)
       .innerJoin(tournamentTeams, eq(teams.id, tournamentTeams.teamId))
-      .where(eq(tournamentTeams.tournamentId, activeT.id));
+      .where(
+        and(
+          eq(tournamentTeams.tournamentId, activeT.id),
+          eq(teams.tenantId, tenant)
+        )
+      );
 
     if (teamsList.length > 0) {
       const teamIds = teamsList.map(t => t.id);
@@ -44,7 +49,12 @@ export default async function AdminDashboardPage({ params }: { params: { tenant:
         })
         .from(teamMembers)
         .innerJoin(participants, eq(teamMembers.participantId, participants.id))
-        .where(inArray(teamMembers.teamId, teamIds));
+        .where(
+          and(
+            inArray(teamMembers.teamId, teamIds),
+            eq(participants.tenantId, tenant)
+          )
+        );
         
       const teamPlayersMap = membersList.reduce((acc, m) => {
           if (!acc[m.teamId]) acc[m.teamId] = [];

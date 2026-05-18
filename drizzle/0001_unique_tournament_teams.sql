@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `tournament_teams_tournament_id_team_id_unique` ON `tournament_teams` (`tournament_id`,`team_id`);

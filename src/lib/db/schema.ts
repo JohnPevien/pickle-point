@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { text, integer, sqliteTable } from "drizzle-orm/sqlite-core";
+import { text, integer, sqliteTable, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // 1. Tenants (Game Masters)
 export const tenants = sqliteTable("tenants", {
@@ -48,7 +48,9 @@ export const teams = sqliteTable("teams", {
 export const tournamentTeams = sqliteTable("tournament_teams", {
   tournamentId: text("tournament_id").notNull().references(() => tournaments.id),
   teamId: text("team_id").notNull().references(() => teams.id),
-});
+}, (table) => [
+  uniqueIndex("tournament_teams_tournament_id_team_id_unique").on(table.tournamentId, table.teamId),
+]);
 
 // 5. Team Members (Many-to-Many linking Teams and Participants)
 export const teamMembers = sqliteTable("team_members", {

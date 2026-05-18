@@ -23,7 +23,8 @@ A white-labeled, multi-tenant B2B SaaS application for pickleball tournament man
 
 1. **Clone the repository**
    ```bash
-   cd C:\code\github-repositories\pickle-point
+   git clone <repository-url>
+   cd pickle-point
    ```
 
 2. **Install dependencies**

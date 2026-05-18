@@ -11,6 +11,8 @@ export type Match = {
   team2: TeamMinimal | null; // null represents a "Bye"
 };
 
+const BYE_TEAM_ID = "BYE";
+
 /**
  * Generates a Round Robin schedule using the standard circle method.
  * If the number of teams is odd, a dummy "Bye" team is injected,
@@ -27,9 +29,9 @@ export function generateRoundRobinMatches(teams: TeamMinimal[]): Match[] {
   const matches: Match[] = [];
   const teamsArray = [...teams];
 
-  // If odd number of teams, add a dummy "Bye" team denoted by null id
+  // If odd number of teams, add a dummy "Bye" team.
   if (teamsArray.length % 2 !== 0) {
-    teamsArray.push({ id: "BYE", name: "Bye" });
+    teamsArray.push({ id: BYE_TEAM_ID, name: "Bye" });
   }
 
   const numTeams = teamsArray.length;
@@ -49,41 +51,27 @@ export function generateRoundRobinMatches(teams: TeamMinimal[]): Match[] {
 
       const team1 = teamsArray[home];
       const team2 = teamsArray[away];
-
-      // Exclude matches against the dummy "BYE" team from the actual schedule if desired,
-      // but keeping it explicit helps UI show who has a BYE.
-      // We will map BYE's to null team2 for the UI.
       
-      const t1 = team1.id === "BYE" ? null : team1;
-      const t2 = team2.id === "BYE" ? null : team2;
+      const actualTeam1 = team1.id === BYE_TEAM_ID ? null : team1;
+      const actualTeam2 = team2.id === BYE_TEAM_ID ? null : team2;
 
-      // Only add if at least one actual team is playing
-      // Only generate a real match if team1 isn't a Bye (which shouldn't happen based on dummy logic, but safe to check) and team2 isn't a Bye.
-      // Actually, if we hit a Dummy, we either map to null (Bye) or actual team.
-      const matchTeam1 = t1 && t1.id !== "dummy" ? t1 : null;
-      const matchTeam2 = t2 && t2.id !== "dummy" ? t2 : null;
+      if (!actualTeam1 && !actualTeam2) continue;
 
-      // If both are null (Dummy vs Dummy), we skip.
-      if (!matchTeam1 && !matchTeam2) continue;
+      if (!actualTeam1) {
+        if (!actualTeam2) continue;
 
-      // We need a guaranteed actual team for team1 to satisfy the Match type
-      let finalTeam1 = matchTeam1;
-      let finalTeam2 = matchTeam2;
-
-      // If team1 is null (a BYE Dummy) and team2 is an actual team, swap them
-      // so the actual team is always team1 and team2 is the BYE (null).
-      if (!finalTeam1 && finalTeam2) {
-        finalTeam1 = finalTeam2;
-        finalTeam2 = null;
+        matches.push({
+          round: round + 1,
+          team1: actualTeam2,
+          team2: null,
+        });
+        continue;
       }
-      
-      // If after swap, we still don't have a team1, skip the match
-      if (!finalTeam1) continue;
 
       matches.push({
         round: round + 1,
-        team1: finalTeam1,
-        team2: finalTeam2,
+        team1: actualTeam1,
+        team2: actualTeam2,
       });
     }
   }
