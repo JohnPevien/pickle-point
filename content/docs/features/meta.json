@@ -1,0 +1,5 @@
+{
+  "title": "Features",
+  "defaultOpen": true,
+  "pages": ["player-model", "open-play", "tournaments", "matching-logic"]
+}

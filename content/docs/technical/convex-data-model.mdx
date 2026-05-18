@@ -1,0 +1,29 @@
+---
+title: Convex Data Model
+description: Target backend architecture for realtime state.
+---
+
+## Decision
+
+Use Convex for persistence, backend functions, and realtime sync.
+
+Remove Turso and Drizzle from the target architecture.
+
+## Core Tables
+
+- Auth identity mapping
+- Game Master workspaces
+- Venues or clubs
+- Players
+- Open play sessions
+- Session players
+- Session matches
+- Match history
+- Tournaments
+- Tournament entrants
+- Tournament matches
+- Stats snapshots
+
+## Realtime Use
+
+Use Convex subscriptions for live player views and Game Master dashboards.
