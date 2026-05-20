@@ -40,32 +40,37 @@ export function RegistrationForm({ tenantId, tournamentId }: { tenantId: Id<"ten
 
   function onSubmit(values: RegistrationFormValues) {
     startTransition(async () => {
-      const result = await registerTeam({
-        tenantId,
-        tournamentId,
-        teamName: values.teamName,
-        skillTier: values.skillTier,
-        player1: {
-          firstName: values.player1.firstName,
-          lastName: values.player1.lastName,
-          email: values.player1.email || undefined,
-          phone: values.player1.phone || undefined,
-          optIn: values.player1.optIn,
-        },
-        player2: {
-          firstName: values.player2.firstName,
-          lastName: values.player2.lastName,
-          email: values.player2.email || undefined,
-          phone: values.player2.phone || undefined,
-          optIn: values.player2.optIn,
-        },
-      });
-      
-      if (result.success) {
-        toast.success("Team registered successfully!");
-        form.reset();
-      } else {
-        toast.error(result.error || "Failed to register team.");
+      try {
+        const result = await registerTeam({
+          tenantId,
+          tournamentId,
+          teamName: values.teamName,
+          skillTier: values.skillTier,
+          player1: {
+            firstName: values.player1.firstName,
+            lastName: values.player1.lastName,
+            email: values.player1.email || undefined,
+            phone: values.player1.phone || undefined,
+            optIn: values.player1.optIn,
+          },
+          player2: {
+            firstName: values.player2.firstName,
+            lastName: values.player2.lastName,
+            email: values.player2.email || undefined,
+            phone: values.player2.phone || undefined,
+            optIn: values.player2.optIn,
+          },
+        });
+        
+        if (result.success) {
+          toast.success("Team registered successfully!");
+          form.reset();
+        } else {
+          toast.error(result.error || "Failed to register team.");
+        }
+      } catch (error) {
+        console.error("Registration error:", error);
+        toast.error("An unexpected error occurred. Please try again.");
       }
     });
   }
