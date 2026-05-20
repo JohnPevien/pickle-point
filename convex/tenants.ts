@@ -1,19 +1,16 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, internalMutation } from "./_generated/server";
 
 /**
  * Resolves a Game Master's workspace (tenant) by its ID.
- * In sandbox mode, if the provided ID is not a valid Convex ID, 
- * it falls back to the first available tenant in the database to prevent crashing.
+ * Returns null if the provided ID is not a valid Convex ID.
  */
 export const getById = query({
   args: { tenantId: v.string() },
   handler: async (ctx, args) => {
     const id = ctx.db.normalizeId("tenants", args.tenantId);
     if (!id) {
-      // Sandbox fallback: return the first tenant if one exists in the database
-      const firstTenant = await ctx.db.query("tenants").first();
-      return firstTenant || null;
+      return null;
     }
     return await ctx.db.get(id);
   },
@@ -21,9 +18,9 @@ export const getById = query({
 
 /**
  * Seeds a default tenant/workspace in the database.
- * Used for local development and sandbox setups.
+ * Used for local development and sandbox setups. Registered as an internal mutation.
  */
-export const seed = mutation({
+export const seed = internalMutation({
   args: {
     name: v.string(),
     primaryColor: v.optional(v.string()),
@@ -33,7 +30,7 @@ export const seed = mutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("tenants")
-      .filter((q) => q.eq(q.field("contactEmail"), args.contactEmail))
+      .withIndex("by_contactEmail", (q) => q.eq("contactEmail", args.contactEmail))
       .first();
 
     if (existing) {

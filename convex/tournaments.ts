@@ -38,8 +38,9 @@ export const getActiveTournament = query({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("tournaments")
-      .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
-      .filter((q) => q.eq(q.field("status"), "registration_open"))
+      .withIndex("by_tenantId_and_status", (q) =>
+        q.eq("tenantId", args.tenantId).eq("status", "registration_open")
+      )
       .first();
   },
 });
@@ -66,21 +67,23 @@ export const getRegisteredTeams = query({
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
       .collect();
 
-    const results = [];
-    for (const entrant of entrants) {
-      const p1 = await ctx.db.get(entrant.player1Id);
-      const p2 = await ctx.db.get(entrant.player2Id);
-      results.push({
-        id: entrant._id,
-        name: entrant.name,
-        skillTier: entrant.skillTier,
-        players: [
-          p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
-          p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
-        ],
-      });
-    }
-    return results;
+    return await Promise.all(
+      entrants.map(async (entrant) => {
+        const [p1, p2] = await Promise.all([
+          ctx.db.get(entrant.player1Id),
+          ctx.db.get(entrant.player2Id),
+        ]);
+        return {
+          id: entrant._id,
+          name: entrant.name,
+          skillTier: entrant.skillTier,
+          players: [
+            p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
+            p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
+          ],
+        };
+      })
+    );
   },
 });
 
@@ -181,15 +184,18 @@ export const generateBracket = mutation({
       // Convert generated matches into database schema shape
       let order = 1;
       for (const sm of schedule) {
-        matchesToInsert.push({
+        const matchData: any = {
           tournamentId: args.tournamentId,
           entrant1Id: sm.entrant1.id,
-          entrant2Id: sm.entrant2?.id || undefined,
           status: "pending",
           roundNumber: sm.round,
           matchOrder: order++,
           createdAt: Date.now(),
-        });
+        };
+        if (sm.entrant2) {
+          matchData.entrant2Id = sm.entrant2.id;
+        }
+        matchesToInsert.push(matchData);
       }
       generatedTotal += schedule.length;
     }

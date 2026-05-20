@@ -10,7 +10,7 @@ export default defineSchema({
     secondaryColor: v.optional(v.string()),
     contactEmail: v.string(),
     createdAt: v.number(),
-  }),
+  }).index("by_contactEmail", ["contactEmail"]),
 
   // 2. User/Game Master Auth Identity Mapping
   users: defineTable({
@@ -19,7 +19,7 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_token", ["tokenIdentifier"]),
+  }).index("by_tokenIdentifier", ["tokenIdentifier"]),
 
   // 3. Venues / Clubs
   venues: defineTable({
@@ -51,11 +51,12 @@ export default defineSchema({
     gender: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
     notes: v.optional(v.string()), // Emergency or private GM notes
+    optIn: v.optional(v.boolean()), // Consent flag
     createdAt: v.number(),
   })
     .index("by_tenant", ["tenantId"])
-    .index("by_tenant_email", ["tenantId", "email"])
-    .index("by_tenant_phone", ["tenantId", "phone"]),
+    .index("by_tenantId_and_email", ["tenantId", "email"])
+    .index("by_tenantId_and_phone", ["tenantId", "phone"]),
 
   // 5. Open Play Sessions
   openPlaySessions: defineTable({
@@ -95,8 +96,8 @@ export default defineSchema({
     checkedInAt: v.number(),
   })
     .index("by_session", ["sessionId"])
-    .index("by_session_player", ["sessionId", "playerId"])
-    .index("by_session_status", ["sessionId", "status"]),
+    .index("by_sessionId_and_playerId", ["sessionId", "playerId"])
+    .index("by_sessionId_and_status", ["sessionId", "status"]),
 
   // 7. Session Matches (Live courts match manager for Open Play)
   sessionMatches: defineTable({
@@ -149,7 +150,9 @@ export default defineSchema({
       v.literal("round_robin")
     ),
     createdAt: v.number(),
-  }).index("by_tenant", ["tenantId"]),
+  })
+    .index("by_tenant", ["tenantId"])
+    .index("by_tenantId_and_status", ["tenantId", "status"]),
 
   // 10. Tournament Entrants (Fixed Doubles Teams)
   tournamentEntrants: defineTable({
@@ -168,7 +171,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_tournament", ["tournamentId"])
-    .index("by_tournament_players", ["tournamentId", "player1Id", "player2Id"]),
+    .index("by_tournamentId_and_player1Id", ["tournamentId", "player1Id"])
+    .index("by_tournamentId_and_player2Id", ["tournamentId", "player2Id"])
+    .index("by_tournamentId_and_player1Id_and_player2Id", ["tournamentId", "player1Id", "player2Id"]),
 
   // 11. Tournament Matches (The bracket structure)
   tournamentMatches: defineTable({
@@ -189,7 +194,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_tournament", ["tournamentId"])
-    .index("by_tournament_round", ["tournamentId", "roundNumber"]),
+    .index("by_tournamentId_and_roundNumber", ["tournamentId", "roundNumber"]),
 
   // 12. Player Stats Snapshots
   statsSnapshots: defineTable({

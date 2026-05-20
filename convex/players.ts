@@ -62,14 +62,14 @@ export const registerTournamentTeam = mutation({
       if (email) {
         const p = await ctx.db
           .query("players")
-          .withIndex("by_tenant_email", (q) => q.eq("tenantId", args.tenantId).eq("email", email))
+          .withIndex("by_tenantId_and_email", (q) => q.eq("tenantId", args.tenantId).eq("email", email))
           .first();
         if (p) return p;
       }
       if (phone) {
         const p = await ctx.db
           .query("players")
-          .withIndex("by_tenant_phone", (q) => q.eq("tenantId", args.tenantId).eq("phone", phone))
+          .withIndex("by_tenantId_and_phone", (q) => q.eq("tenantId", args.tenantId).eq("phone", phone))
           .first();
         if (p) return p;
       }
@@ -78,13 +78,21 @@ export const registerTournamentTeam = mutation({
 
     // Helper to see if a player is already registered for this tournament
     const isPlayerInTournament = async (playerId: Id<"players">) => {
-      const entrants = await ctx.db
+      const p1Entrant = await ctx.db
         .query("tournamentEntrants")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
-        .collect();
-      return entrants.some(
-        (e) => e.player1Id === playerId || e.player2Id === playerId
-      );
+        .withIndex("by_tournamentId_and_player1Id", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("player1Id", playerId)
+        )
+        .first();
+      if (p1Entrant) return true;
+
+      const p2Entrant = await ctx.db
+        .query("tournamentEntrants")
+        .withIndex("by_tournamentId_and_player2Id", (q) =>
+          q.eq("tournamentId", args.tournamentId).eq("player2Id", playerId)
+        )
+        .first();
+      return !!p2Entrant;
     };
 
     // Resolve or create Player 1
@@ -111,6 +119,7 @@ export const registerTournamentTeam = mutation({
         manualSkillLevel: args.skillTier,
         email: p1Email,
         phone: p1Phone,
+        optIn: args.player1.optIn,
         createdAt: Date.now(),
       });
     }
@@ -139,6 +148,7 @@ export const registerTournamentTeam = mutation({
         manualSkillLevel: args.skillTier,
         email: p2Email,
         phone: p2Phone,
+        optIn: args.player2.optIn,
         createdAt: Date.now(),
       });
     }
