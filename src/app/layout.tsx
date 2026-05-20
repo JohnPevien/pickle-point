@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Russo_One, Chakra_Petch } from "next/font/google";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { ConvexClientProvider } from "@/components/providers/convex-client-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,8 +47,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${russoOne.variable} ${chakraPetch.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}
       >
         <RootProvider>
-          {children}
-          <Toaster />
+          <ConvexClientProvider>
+            {children}
+            <Toaster />
+          </ConvexClientProvider>
         </RootProvider>
       </body>
     </html>
