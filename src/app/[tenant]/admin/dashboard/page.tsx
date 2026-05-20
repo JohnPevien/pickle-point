@@ -1,72 +1,33 @@
-import { db } from "@/lib/db";
-import { tenants, tournaments, teams, tournamentTeams, teamMembers, participants } from "@/lib/db/schema";
-import { eq, desc, inArray, and } from "drizzle-orm";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "../../../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/admin/DashboardView";
 
 export default async function AdminDashboardPage({ params }: { params: { tenant: string } }) {
   const { tenant } = params;
 
-  const [tenantData] = await db.select().from(tenants).where(eq(tenants.id, tenant));
+  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
 
   if (!tenantData) {
     notFound();
   }
 
   // Fetch all tournaments for this tenant
-  const allTournaments = await db.select().from(tournaments)
-    .where(eq(tournaments.tenantId, tenant))
-    .orderBy(desc(tournaments.createdAt));
+  const allTournaments = await fetchQuery(api.tournaments.listByTenant, { tenantId: tenantData._id });
 
   // Determine active tournament if any
-  const activeT = allTournaments.find(t => t.status === "registration_open" || t.status === "draft" || t.status === "in_progress");
+  const activeT = allTournaments.find(t => t.status === "registration_open" || t.status === "draft" || t.status === "bracket_generated" || t.status === "live");
 
   let registeredTeams: { id: string, name: string, skillTier: string, players: string[] }[] = [];
 
   if (activeT) {
-    const teamsList = await db
-      .select({
-        id: teams.id,
-        name: teams.name,
-        skillTier: teams.skillTier,
-      })
-      .from(teams)
-      .innerJoin(tournamentTeams, eq(teams.id, tournamentTeams.teamId))
-      .where(
-        and(
-          eq(tournamentTeams.tournamentId, activeT.id),
-          eq(teams.tenantId, tenant)
-        )
-      );
-
-    if (teamsList.length > 0) {
-      const teamIds = teamsList.map(t => t.id);
-      const membersList = await db
-        .select({
-            teamId: teamMembers.teamId,
-            firstName: participants.firstName,
-            lastName: participants.lastName
-        })
-        .from(teamMembers)
-        .innerJoin(participants, eq(teamMembers.participantId, participants.id))
-        .where(
-          and(
-            inArray(teamMembers.teamId, teamIds),
-            eq(participants.tenantId, tenant)
-          )
-        );
-        
-      const teamPlayersMap = membersList.reduce((acc, m) => {
-          if (!acc[m.teamId]) acc[m.teamId] = [];
-          acc[m.teamId].push(`${m.firstName} ${m.lastName}`);
-          return acc;
-      }, {} as Record<string, string[]>);
-      
-      registeredTeams = teamsList.map(t => ({
-          ...t,
-          players: teamPlayersMap[t.id] || []
-      }));
-    }
+    const teamsList = await fetchQuery(api.tournaments.getRegisteredTeams, { tournamentId: activeT._id });
+    registeredTeams = teamsList.map(t => ({
+      id: t.id,
+      name: t.name,
+      skillTier: t.skillTier,
+      players: t.players
+    }));
   }
 
   return (
@@ -76,7 +37,7 @@ export default async function AdminDashboardPage({ params }: { params: { tenant:
           <h1 className="font-bold text-xl" style={{ color: "var(--tenant-primary)" }}>
             {tenantData.name} - Game Master Dashboard
           </h1>
-          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-bold">
+          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-primary-foreground font-bold" style={{ backgroundColor: "var(--tenant-primary)" }}>
             {tenantData.name.charAt(0)}
           </div>
         </div>
@@ -84,8 +45,8 @@ export default async function AdminDashboardPage({ params }: { params: { tenant:
       
       <main className="container mx-auto px-4 py-8">
         <DashboardView 
-          tenantId={tenant} 
-          tournaments={allTournaments} 
+          tenantId={tenantData._id} 
+          tournaments={allTournaments as any[]} 
           teams={registeredTeams} 
         />
       </main>

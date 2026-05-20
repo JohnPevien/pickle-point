@@ -1,6 +1,5 @@
-import { db } from "@/lib/db";
-import { tenants } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import React from "react";
 
@@ -13,16 +12,14 @@ export default async function TenantLayout({
 }) {
   const { tenant } = await params;
 
-  // Ideally, 'tenant' here would be the unique slug or ID of the game master.
-  // For now, we search by ID. Later this might be a unique slug field.
-  const [tenantData] = await db.select().from(tenants).where(eq(tenants.id, tenant));
+  // Query tenant configuration from Convex
+  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
 
   if (!tenantData) {
     notFound();
   }
 
   // Inject primary and secondary colors as inline CSS variables on the wrapping div.
-  // This allows Tailwind 4 or Shadcn to inherit these using bg-[var(--primary)] etc.
   return (
     <div
       className="min-h-screen antialiased bg-background text-foreground"
