@@ -1,26 +1,21 @@
 import { RegistrationForm } from "@/components/forms/RegistrationForm";
-import { db } from "@/lib/db";
-import { tenants, tournaments } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "../../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import Image from "next/image";
 
 export default async function RegisterPage({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant } = await params;
 
-  const [tenantData] = await db.select().from(tenants).where(eq(tenants.id, tenant));
+  // Retrieve tenant branding configurations from Convex
+  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
 
   if (!tenantData) {
     notFound();
   }
 
-  // Fetch the registration-open tournament for this tenant.
-  const [activeTournament] = await db.select().from(tournaments).where(
-    and(
-      eq(tournaments.tenantId, tenant),
-      eq(tournaments.status, "registration_open")
-    )
-  ).limit(1);
+  // Fetch the registration-open tournament for this tenant from Convex.
+  const activeTournament = await fetchQuery(api.tournaments.getActiveTournament, { tenantId: tenantData._id });
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl">
@@ -41,7 +36,7 @@ export default async function RegisterPage({ params }: { params: Promise<{ tenan
       </div>
 
       {activeTournament ? (
-        <RegistrationForm tenantId={tenant} tournamentId={activeTournament.id} />
+        <RegistrationForm tenantId={tenantData._id} tournamentId={activeTournament._id} />
       ) : (
         <div className="text-center p-12 border-2 border-dashed rounded-lg bg-muted/20">
           <p className="text-lg">No open tournaments found.</p>

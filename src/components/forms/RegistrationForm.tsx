@@ -4,7 +4,9 @@ import { useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registrationSchema, RegistrationFormValues } from "@/lib/validations/registration";
-import { registerTeamAction } from "@/app/actions/register";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,8 +23,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
-export function RegistrationForm({ tenantId, tournamentId }: { tenantId: string, tournamentId: string }) {
+export function RegistrationForm({ tenantId, tournamentId }: { tenantId: Id<"tenants">, tournamentId: Id<"tournaments"> }) {
   const [isPending, startTransition] = useTransition();
+  const registerTeam = useMutation(api.players.registerTournamentTeam);
 
   const form = useForm<RegistrationFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,7 +40,27 @@ export function RegistrationForm({ tenantId, tournamentId }: { tenantId: string,
 
   function onSubmit(values: RegistrationFormValues) {
     startTransition(async () => {
-      const result = await registerTeamAction(tenantId, tournamentId, values);
+      const result = await registerTeam({
+        tenantId,
+        tournamentId,
+        teamName: values.teamName,
+        skillTier: values.skillTier,
+        player1: {
+          firstName: values.player1.firstName,
+          lastName: values.player1.lastName,
+          email: values.player1.email || undefined,
+          phone: values.player1.phone || undefined,
+          optIn: values.player1.optIn,
+        },
+        player2: {
+          firstName: values.player2.firstName,
+          lastName: values.player2.lastName,
+          email: values.player2.email || undefined,
+          phone: values.player2.phone || undefined,
+          optIn: values.player2.optIn,
+        },
+      });
+      
       if (result.success) {
         toast.success("Team registered successfully!");
         form.reset();
@@ -160,7 +183,8 @@ export function RegistrationForm({ tenantId, tournamentId }: { tenantId: string,
                       <SelectItem value="Beginner">Beginner</SelectItem>
                       <SelectItem value="Novice">Novice</SelectItem>
                       <SelectItem value="Low Intermediate">Low Intermediate</SelectItem>
-                      <SelectItem value="Intermediate">Intermediate</SelectItem>
+                      <SelectItem value="High Intermediate">High Intermediate</SelectItem>
+                      <SelectItem value="Advanced">Advanced</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />

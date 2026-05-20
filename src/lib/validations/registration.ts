@@ -13,7 +13,7 @@ const playerSchema = z.object({
 
 export const registrationSchema = z.object({
   teamName: z.string().min(1, "Team name is required"),
-  skillTier: z.enum(["Beginner", "Novice", "Low Intermediate", "Intermediate"] as const, {
+  skillTier: z.enum(["Beginner", "Novice", "Low Intermediate", "High Intermediate", "Advanced"] as const, {
     message: "Please select a skill tier",
   }),
   player1: playerSchema,

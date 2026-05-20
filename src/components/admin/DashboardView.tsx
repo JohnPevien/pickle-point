@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { generateBracketAction } from "@/app/actions/tournament";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
 
 type Team = {
   id: string;
@@ -15,10 +17,10 @@ type Team = {
 };
 
 type Tournament = {
-  id: string;
+  _id: Id<"tournaments">;
   name: string;
   status: string | null;
-  date: Date;
+  date: number;
 };
 
 export function DashboardView({ 
@@ -26,25 +28,30 @@ export function DashboardView({
   tournaments, 
   teams 
 }: { 
-  tenantId: string, 
+  tenantId: Id<"tenants">, 
   tournaments: Tournament[], 
   teams: Team[] 
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const generateBracket = useMutation(api.tournaments.generateBracket);
 
-  const activeTournament = tournaments.find(t => t.status === "registration_open" || t.status === "draft" || t.status === "in_progress");
+  const activeTournament = tournaments.find(t => t.status === "registration_open" || t.status === "draft" || t.status === "bracket_generated" || t.status === "live");
 
   const handleGenerateBracket = () => {
     if (!activeTournament) return;
     
     startTransition(async () => {
-      const res = await generateBracketAction(tenantId, activeTournament.id);
-      if (res.success) {
-        toast.success(res.message);
-        router.refresh();
-      } else {
-        toast.error(res.error || "Failed");
+      try {
+        const res = await generateBracket({ tenantId, tournamentId: activeTournament._id });
+        if (res.success) {
+          toast.success(res.message);
+          router.refresh();
+        } else {
+          toast.error(res.error || "Failed");
+        }
+      } catch (err: any) {
+        toast.error(err.message || "Failed to generate bracket.");
       }
     });
   };
@@ -70,7 +77,7 @@ export function DashboardView({
     return acc;
   }, {} as Record<string, Team[]>);
 
-  const tiers = ["Beginner", "Novice", "Low Intermediate", "Intermediate"];
+  const tiers = ["Beginner", "Novice", "Low Intermediate", "High Intermediate", "Advanced"];
 
   return (
     <div className="space-y-8">
@@ -82,10 +89,10 @@ export function DashboardView({
         <div className="space-x-4">
            <Button 
              onClick={handleGenerateBracket} 
-             disabled={isPending || activeTournament.status === "in_progress" || teams.length < 2}
+             disabled={isPending || activeTournament.status === "bracket_generated" || activeTournament.status === "live" || teams.length < 2}
              className="bg-[var(--tenant-primary)]"
            >
-             {isPending ? "Processing..." : activeTournament.status === "in_progress" ? "Bracket Locked" : "Generate Bracket"}
+             {isPending ? "Processing..." : (activeTournament.status === "bracket_generated" || activeTournament.status === "live") ? "Bracket Locked" : "Generate Bracket"}
            </Button>
         </div>
       </div>
