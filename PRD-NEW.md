@@ -22,6 +22,7 @@ The MVP should support both open play and mini tournaments, with open play treat
 - Venue or club profile owned by a Game Master.
 - Player directory with reusable player records.
 - All open play and tournament participants must be registered as player records before joining.
+- Guest and walk-in players can join open plays and tournaments without creating login accounts, as long as the Game Master creates or selects a player record for them.
 - Manual player skill ratings for markets where DUPR is uncommon.
 - Optional DUPR rating field when available.
 - Open play session creation.
@@ -51,7 +52,8 @@ The MVP should support both open play and mini tournaments, with open play treat
 - MVP identity decision:
   - No anonymous players in open play or tournaments.
   - Every participant must have a registered player record before they can be checked in, queued, seeded, or added to a match.
-  - Game Masters can create local player records for walk-ins during check-in.
+  - Game Masters can create local guest or walk-in player records during open play check-in or tournament registration.
+  - Guest and walk-in records can be accountless, but they still need enough profile and skill data for matchmaking, seeding, scoring, and history.
   - Player login accounts are not required for MVP participation, but player records should be claimable/linkable to login accounts later.
 - Define required player record fields:
   - first name
@@ -88,10 +90,13 @@ The MVP should support both open play and mini tournaments, with open play treat
   - Live
   - Completed
   - Cancelled
+- Define open play session types:
+  - Standard Open Play: flexible rotation-focused sessions for recurring club or venue play.
+  - Ladder Play: competitive open play where winners move up and losing players or teams move down courts, pools, or standings over successive rounds.
 - Define matching modes:
   - Auto-balanced: fair rotation with maximum partner/opponent variety.
   - Skill-separated: group players into comparable skill tiers.
-  - Winners vs losers: winners face winners and losers face losers in ladder style.
+  - Winners vs losers: winners face winners and losers face losers; this can power Ladder Play rounds.
   - Mixed doubles: each team should have one male and one female when enough players are available.
   - Skill courts: run separate queues per skill bracket on dedicated courts.
 - Define matching fallback behavior when the ideal mode cannot be satisfied.
@@ -112,6 +117,7 @@ The MVP should support both open play and mini tournaments, with open play treat
 - MVP tournament entrant decision:
   - Tournaments use fixed doubles teams as entrants.
   - Each team contains two registered player records.
+  - Guest and walk-in player records are valid tournament entrants; tournament participation must not require a player login account.
   - Team composition is set before bracket generation.
   - Random pairings are not part of MVP tournament generation.
   - Singles tournament support is deferred.
@@ -208,7 +214,7 @@ The MVP should support both open play and mini tournaments, with open play treat
 
 ## Open Questions
 
-- Answered: All participants must be registered as player records. Player login accounts are not required for MVP participation; Game Masters can register walk-ins locally during check-in.
+- Answered: All participants must be registered as player records. Player login accounts are not required for MVP participation; Game Masters can register accountless guest or walk-in players locally during open play check-in or tournament registration.
 - Answered: MVP tournaments use fixed doubles teams as entrants. Random pairing / spin-the-wheel mode and singles tournaments are future features.
 - Should WorkOS AuthKit be the final auth provider, or should another Convex-supported provider be chosen before implementation?
 - Should AI matching be deferred until rule-based matching has real session history?
