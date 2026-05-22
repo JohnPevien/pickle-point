@@ -317,6 +317,7 @@ export const updatePlayerStatus = mutation({
       );
       await ctx.db.patch(record._id, { status: args.status, queuePosition: maxPos + 1 });
     } else {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id, _creationTime, queuePosition: _qp, ...rest } = record;
       await ctx.db.replace(record._id, { ...rest, status: args.status });
     }
@@ -423,7 +424,6 @@ export const generateMatches = mutation({
       return a.checkedInAt - b.checkedInAt;
     });
 
-    const totalRequiredPlayers = availableCourtsCount * 4;
     if (sortedAvailable.length < 4) {
       return { success: false, error: "Not enough players in queue to generate a match (need at least 4)." };
     }
@@ -443,7 +443,7 @@ export const generateMatches = mutation({
     );
 
     // We can generate up to `availableCourtsCount` matches
-    const matchesCreated = [];
+    const matchesCreated: Id<"sessionMatches">[] = [];
     let playerIndex = 0;
 
     for (let court = 0; court < availableCourtsCount; court++) {
@@ -503,6 +503,7 @@ export const generateMatches = mutation({
       for (const pId of allPlayerIds) {
         const spRecord = sessionPlayers.find((sp) => sp.playerId === pId);
         if (spRecord) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { _id, _creationTime, queuePosition: _qp, ...rest } = spRecord;
           await ctx.db.replace(spRecord._id, { ...rest, status: "playing" });
         }

@@ -4,7 +4,7 @@ import { Doc, Id } from "./_generated/dataModel";
 
 // Helper structure for bracket generation
 type EntrantMinimal = {
-  id: Id<"tournamentEntrants">;
+  id: Id<"tournamentEntrants"> | string;
   name: string;
 };
 
@@ -131,15 +131,15 @@ export const generateBracket = mutation({
     const matchesToInsert: Omit<Doc<"tournamentMatches">, "_id" | "_creationTime">[] = [];
     let generatedTotal = 0;
 
-    for (const [tier, tierEntrants] of Object.entries(entrantsByTier)) {
+    for (const [, tierEntrants] of Object.entries(entrantsByTier)) {
       if (tierEntrants.length < 2) continue; // Skip tier if there is only 1 entrant
 
       const schedule: RoundRobinMatch[] = [];
-      const list = tierEntrants.map(e => ({ id: e._id, name: e.name }));
+      const list: EntrantMinimal[] = tierEntrants.map(e => ({ id: e._id, name: e.name }));
 
       // Circle method rotation setup
       if (list.length % 2 !== 0) {
-        list.push({ id: BYE_ID as any, name: "Bye" });
+        list.push({ id: BYE_ID, name: "Bye" });
       }
 
       const numEntrants = list.length;
@@ -184,17 +184,15 @@ export const generateBracket = mutation({
       // Convert generated matches into database schema shape
       let order = 1;
       for (const sm of schedule) {
-        const matchData: any = {
+        const matchData: Omit<Doc<"tournamentMatches">, "_id" | "_creationTime"> = {
           tournamentId: args.tournamentId,
-          entrant1Id: sm.entrant1.id,
+          entrant1Id: sm.entrant1.id as Id<"tournamentEntrants">,
+          entrant2Id: sm.entrant2 ? sm.entrant2.id as Id<"tournamentEntrants"> : undefined,
           status: "pending",
           roundNumber: sm.round,
           matchOrder: order++,
           createdAt: Date.now(),
         };
-        if (sm.entrant2) {
-          matchData.entrant2Id = sm.entrant2.id;
-        }
         matchesToInsert.push(matchData);
       }
       generatedTotal += schedule.length;
@@ -229,5 +227,130 @@ export const generateBracket = mutation({
       success: true, 
       message: `Successfully generated ${generatedTotal} matches across all active skill tiers!` 
     };
+  },
+});
+
+const TOURNAMENT_LIFECYCLE: Record<string, string[]> = {
+  draft: ["registration_open", "cancelled"],
+  registration_open: ["registration_closed", "cancelled"],
+  registration_closed: ["bracket_generated", "registration_open", "cancelled"],
+  bracket_generated: ["live", "registration_closed", "cancelled"],
+  live: ["completed", "cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+export const createTournament = mutation({
+  args: {
+    tenantId: v.id("tenants"),
+    name: v.string(),
+    date: v.number(),
+    format: v.union(
+      v.literal("single_elimination"),
+      v.literal("double_elimination"),
+      v.literal("round_robin")
+    ),
+    location: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const tournamentId = await ctx.db.insert("tournaments", {
+      tenantId: args.tenantId,
+      name: args.name.trim(),
+      date: args.date,
+      format: args.format,
+      location: args.location?.trim() || undefined,
+      status: "draft",
+      createdAt: Date.now(),
+    });
+    return { success: true, tournamentId };
+  },
+});
+
+export const updateTournamentStatus = mutation({
+  args: {
+    tournamentId: v.id("tournaments"),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("registration_open"),
+      v.literal("registration_closed"),
+      v.literal("bracket_generated"),
+      v.literal("live"),
+      v.literal("completed"),
+      v.literal("cancelled")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) {
+      return { success: false, error: "Tournament not found." };
+    }
+    const allowed = TOURNAMENT_LIFECYCLE[tournament.status] ?? [];
+    if (!allowed.includes(args.status)) {
+      return { success: false, error: `Cannot transition from '${tournament.status}' to '${args.status}'.` };
+    }
+    await ctx.db.patch(args.tournamentId, { status: args.status });
+    return { success: true };
+  },
+});
+
+export const getTournamentBracket = query({
+  args: { tournamentId: v.id("tournaments") },
+  handler: async (ctx, args) => {
+    const matches = await ctx.db
+      .query("tournamentMatches")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .order("asc")
+      .collect();
+
+    const enriched = await Promise.all(
+      matches.map(async (match) => {
+        const [entrant1, entrant2, winner] = await Promise.all([
+          match.entrant1Id ? ctx.db.get(match.entrant1Id) : null,
+          match.entrant2Id ? ctx.db.get(match.entrant2Id) : null,
+          match.winnerId ? ctx.db.get(match.winnerId) : null,
+        ]);
+        return {
+          ...match,
+          entrant1Name: entrant1?.name ?? null,
+          entrant2Name: entrant2?.name ?? null,
+          winnerName: winner?.name ?? null,
+        };
+      })
+    );
+
+    const byRound = enriched.reduce((acc, m) => {
+      if (!acc[m.roundNumber]) acc[m.roundNumber] = [];
+      acc[m.roundNumber].push(m);
+      return acc;
+    }, {} as Record<number, typeof enriched>);
+
+    return Object.entries(byRound)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([round, roundMatches]) => ({ round: Number(round), matches: roundMatches }));
+  },
+});
+
+export const recordTournamentScore = mutation({
+  args: {
+    matchId: v.id("tournamentMatches"),
+    score1: v.number(),
+    score2: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const match = await ctx.db.get(args.matchId);
+    if (!match) {
+      return { success: false, error: "Match not found." };
+    }
+    if (match.status === "completed") {
+      return { success: false, error: "Match is already completed." };
+    }
+    const winnerId = args.score1 > args.score2 ? match.entrant1Id : match.entrant2Id;
+    await ctx.db.patch(args.matchId, {
+      score1: args.score1,
+      score2: args.score2,
+      status: "completed",
+      winnerId,
+    });
+    return { success: true, winnerId };
   },
 });

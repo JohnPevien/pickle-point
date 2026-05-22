@@ -1,7 +1,7 @@
-/// <reference types="vite/client" />
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { convexTest } from "convex-test";
-import { expect, test, describe, beforeEach } from "vitest";
-import { api } from "./_generated/api";
+import { expect, test, describe } from "vitest";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -11,7 +11,7 @@ describe("Open Play Sessions", () => {
   // Helpers
   // -------------------------------------------------------------------------
   async function seedTenant(t: ReturnType<typeof convexTest>) {
-    return await t.mutation(api.tenants.seed, {
+    return await t.mutation(internal.tenants.seed, {
       name: "Test Club",
       contactEmail: "gm@testclub.com",
     });

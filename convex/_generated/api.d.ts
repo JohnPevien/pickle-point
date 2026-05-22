@@ -8,9 +8,12 @@
  * @module
  */
 
+import type * as openPlaySessions from "../openPlaySessions.js";
 import type * as players from "../players.js";
+import type * as stats from "../stats.js";
 import type * as tenants from "../tenants.js";
 import type * as tournaments from "../tournaments.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -19,9 +22,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  openPlaySessions: typeof openPlaySessions;
   players: typeof players;
+  stats: typeof stats;
   tenants: typeof tenants;
   tournaments: typeof tournaments;
+  users: typeof users;
 }>;
 
 /**
