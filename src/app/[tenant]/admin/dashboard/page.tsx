@@ -3,8 +3,12 @@ import { api } from "../../../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/admin/DashboardView";
 
-export default async function AdminDashboardPage({ params }: { params: { tenant: string } }) {
-  const { tenant } = params;
+export default async function AdminDashboardPage({
+  params,
+}: {
+  params: Promise<{ tenant: string }>;
+}) {
+  const { tenant } = await params;
 
   const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
 
@@ -18,16 +22,10 @@ export default async function AdminDashboardPage({ params }: { params: { tenant:
   // Determine active tournament if any
   const activeT = allTournaments.find(t => t.status === "registration_open" || t.status === "draft" || t.status === "bracket_generated" || t.status === "live");
 
-  let registeredTeams: { id: string, name: string, skillTier: string, players: string[] }[] = [];
+  let registeredTeams: { id: string; name: string; skillTier: string; players: string[] }[] = [];
 
   if (activeT) {
-    const teamsList = await fetchQuery(api.tournaments.getRegisteredTeams, { tournamentId: activeT._id });
-    registeredTeams = teamsList.map(t => ({
-      id: t.id,
-      name: t.name,
-      skillTier: t.skillTier,
-      players: t.players
-    }));
+    registeredTeams = await fetchQuery(api.tournaments.getRegisteredTeams, { tournamentId: activeT._id });
   }
 
   return (
@@ -44,10 +42,10 @@ export default async function AdminDashboardPage({ params }: { params: { tenant:
       </header>
       
       <main className="container mx-auto px-4 py-8">
-        <DashboardView 
-          tenantId={tenantData._id} 
-          tournaments={allTournaments as any[]} 
-          teams={registeredTeams} 
+        <DashboardView
+          tenantId={tenantData._id}
+          activeTournament={activeT}
+          teams={registeredTeams}
         />
       </main>
     </div>
