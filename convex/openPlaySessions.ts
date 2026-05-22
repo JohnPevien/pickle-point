@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  findPlayerByContact,
+  legacyContactValue,
+  normalizeEmail,
+  normalizePhone,
+} from "./playerContact";
 
 // Skill mapping for numerical comparison and balancing
 const SKILL_MAP: Record<string, number> = {
@@ -12,19 +18,71 @@ const SKILL_MAP: Record<string, number> = {
   "Advanced": 5.0,
 };
 
-async function getNextQueuePosition(
+const DEFAULT_SESSION_LIST_LIMIT = 50;
+const MAX_SESSION_LIST_LIMIT = 100;
+
+function clampInt(value: number, min: number, max: number) {
+  return Math.min(Math.max(Math.trunc(value), min), max);
+}
+
+function requiredName(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed;
+}
+
+async function allocateQueuePositions(
   ctx: MutationCtx,
-  sessionId: Id<"openPlaySessions">
+  sessionId: Id<"openPlaySessions">,
+  count = 1
 ) {
-  const queuedTail = await ctx.db
-    .query("sessionPlayers")
-    .withIndex("by_sessionId_and_status_and_queuePosition", (q) =>
-      q.eq("sessionId", sessionId).eq("status", "queued")
-    )
-    .order("desc")
+  if (count <= 0) return [];
+
+  const counter = await ctx.db
+    .query("sessionQueueCounters")
+    .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
     .first();
 
-  return (queuedTail?.queuePosition ?? 0) + 1;
+  let startPosition: number;
+  if (counter) {
+    startPosition = counter.nextPosition;
+    await ctx.db.patch(counter._id, {
+      nextPosition: counter.nextPosition + count,
+      updatedAt: Date.now(),
+    });
+  } else {
+    // Migration fallback for sessions created before queue counters existed.
+    const queuedTail = await ctx.db
+      .query("sessionPlayers")
+      .withIndex("by_sessionId_and_status_and_queuePosition", (q) =>
+        q.eq("sessionId", sessionId).eq("status", "queued")
+      )
+      .order("desc")
+      .first();
+    startPosition = (queuedTail?.queuePosition ?? 0) + 1;
+    await ctx.db.insert("sessionQueueCounters", {
+      sessionId,
+      nextPosition: startPosition + count,
+      updatedAt: Date.now(),
+    });
+  }
+
+  return Array.from({ length: count }, (_, index) => startPosition + index);
+}
+
+async function getSessionMatchesByStatus(
+  ctx: QueryCtx | MutationCtx,
+  sessionId: Id<"openPlaySessions">,
+  status: Doc<"sessionMatches">["status"]
+) {
+  return await ctx.db
+    .query("sessionMatches")
+    .withIndex("by_sessionId_and_status", (q) =>
+      q.eq("sessionId", sessionId).eq("status", status)
+    )
+    .collect();
 }
 
 /**
@@ -51,7 +109,7 @@ export const createSession = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("openPlaySessions", {
+    const sessionId = await ctx.db.insert("openPlaySessions", {
       tenantId: args.tenantId,
       venueId: args.venueId,
       name: args.name,
@@ -60,6 +118,12 @@ export const createSession = mutation({
       matchingMode: args.matchingMode,
       createdAt: Date.now(),
     });
+    await ctx.db.insert("sessionQueueCounters", {
+      sessionId,
+      nextPosition: 1,
+      updatedAt: Date.now(),
+    });
+    return sessionId;
   },
 });
 
@@ -67,13 +131,17 @@ export const createSession = mutation({
  * Lists all open play sessions for a given tenant.
  */
 export const listByTenant = query({
-  args: { tenantId: v.id("tenants") },
+  args: {
+    tenantId: v.id("tenants"),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
+    const limit = clampInt(args.limit ?? DEFAULT_SESSION_LIST_LIMIT, 1, MAX_SESSION_LIST_LIMIT);
     return await ctx.db
       .query("openPlaySessions")
       .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
       .order("desc")
-      .collect();
+      .take(limit);
   },
 });
 
@@ -180,7 +248,7 @@ export const checkInPlayer = mutation({
       return { success: false, error: "Player is already checked in to this session." };
     }
 
-    const queuePosition = await getNextQueuePosition(ctx, args.sessionId);
+    const [queuePosition] = await allocateQueuePositions(ctx, args.sessionId);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -231,27 +299,23 @@ export const registerAndCheckInGuest = mutation({
       return { success: false, error: "Session workspace mismatch." };
     }
 
-    // 1. Resolve or create Player
-    const email = args.email?.trim() || undefined;
-    const phone = args.phone?.trim() || undefined;
+    const firstName = requiredName(args.firstName);
+    if (!firstName) return { success: false, error: "First name is required." };
+    const lastName = requiredName(args.lastName);
+    if (!lastName) return { success: false, error: "Last name is required." };
 
-    let player = null;
-    if (email) {
-      player = await ctx.db
-        .query("players")
-        .withIndex("by_tenantId_and_email", (q) =>
-          q.eq("tenantId", args.tenantId).eq("email", email)
-        )
-        .first();
-    }
-    if (!player && phone) {
-      player = await ctx.db
-        .query("players")
-        .withIndex("by_tenantId_and_phone", (q) =>
-          q.eq("tenantId", args.tenantId).eq("phone", phone)
-        )
-        .first();
-    }
+    // 1. Resolve or create Player
+    const email = normalizeEmail(args.email);
+    const phone = normalizePhone(args.phone);
+    const legacyEmail = legacyContactValue(args.email);
+    const legacyPhone = legacyContactValue(args.phone);
+
+    const player = await findPlayerByContact(ctx, args.tenantId, {
+      email,
+      phone,
+      legacyEmail,
+      legacyPhone,
+    });
 
     let playerId: Id<"players">;
     if (player) {
@@ -259,8 +323,8 @@ export const registerAndCheckInGuest = mutation({
     } else {
       playerId = await ctx.db.insert("players", {
         tenantId: args.tenantId,
-        firstName: args.firstName.trim(),
-        lastName: args.lastName.trim(),
+        firstName,
+        lastName,
         skillSource: "manual",
         manualSkillLevel: args.skillTier,
         email,
@@ -269,9 +333,6 @@ export const registerAndCheckInGuest = mutation({
         createdAt: Date.now(),
       });
     }
-
-    // 2. Check in the player
-    const queuePosition = await getNextQueuePosition(ctx, args.sessionId);
 
     const existingSessionPlayer = await ctx.db
       .query("sessionPlayers")
@@ -284,6 +345,12 @@ export const registerAndCheckInGuest = mutation({
       if (existingSessionPlayer.status !== "left") {
         return { success: false, error: "Player is already checked in to this session." };
       }
+    }
+
+    // 2. Check in the player
+    const [queuePosition] = await allocateQueuePositions(ctx, args.sessionId);
+
+    if (existingSessionPlayer) {
       await ctx.db.patch(existingSessionPlayer._id, {
         status: "queued",
         queuePosition,
@@ -331,7 +398,7 @@ export const updatePlayerStatus = mutation({
     }
 
     if (args.status === "queued") {
-      const queuePosition = await getNextQueuePosition(ctx, args.sessionId);
+      const [queuePosition] = await allocateQueuePositions(ctx, args.sessionId);
       await ctx.db.patch(record._id, { status: args.status, queuePosition });
     } else {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -398,13 +465,10 @@ export const generateMatches = mutation({
     }
 
     // Find all active (pending or in progress) matches to count occupied courts
-    const activeMatches = await ctx.db
-      .query("sessionMatches")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .collect()
-      .then((matches) =>
-        matches.filter((m) => m.status === "pending" || m.status === "in_progress")
-      );
+    const activeMatches = [
+      ...(await getSessionMatchesByStatus(ctx, args.sessionId, "pending")),
+      ...(await getSessionMatchesByStatus(ctx, args.sessionId, "in_progress")),
+    ];
 
     const occupiedCourtsCount = activeMatches.length;
     const availableCourtsCount = totalCourts - occupiedCourtsCount;
@@ -415,10 +479,21 @@ export const generateMatches = mutation({
 
     // 2. Identify available players (status = "queued" or "sitting_out")
     // and not currently playing in any active match
-    const sessionPlayers = await ctx.db
-      .query("sessionPlayers")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .collect();
+    const sessionPlayers = [
+      ...(await ctx.db
+        .query("sessionPlayers")
+        .withIndex("by_sessionId_and_status_and_queuePosition", (q) =>
+          q.eq("sessionId", args.sessionId).eq("status", "queued")
+        )
+        .order("asc")
+        .collect()),
+      ...(await ctx.db
+        .query("sessionPlayers")
+        .withIndex("by_sessionId_and_status", (q) =>
+          q.eq("sessionId", args.sessionId).eq("status", "sitting_out")
+        )
+        .collect()),
+    ];
 
     const playingPlayerIds = new Set<string>();
     for (const m of activeMatches) {
@@ -444,13 +519,15 @@ export const generateMatches = mutation({
       return a.checkedInAt - b.checkedInAt;
     });
 
-    if (sortedAvailable.length < 4) {
+    const assignableSessionPlayers = sortedAvailable.slice(0, availableCourtsCount * 4);
+
+    if (assignableSessionPlayers.length < 4) {
       return { success: false, error: "Not enough players in queue to generate a match (need at least 4)." };
     }
 
     // Load actual player detail documents to perform smart matching
     const loadedPlayers = await Promise.all(
-      sortedAvailable.map(async (sp) => {
+      assignableSessionPlayers.map(async (sp) => {
         const details = await ctx.db.get(sp.playerId);
         return {
           sessionPlayer: sp,
@@ -519,14 +596,10 @@ export const generateMatches = mutation({
       });
 
       // Update statuses of the 4 players to 'playing' and remove from queue pos
-      const allPlayerIds = [...team1, ...team2];
-      for (const pId of allPlayerIds) {
-        const spRecord = sessionPlayers.find((sp) => sp.playerId === pId);
-        if (spRecord) {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { _id, _creationTime, queuePosition: _qp, ...rest } = spRecord;
-          await ctx.db.replace(spRecord._id, { ...rest, status: "playing" });
-        }
+      for (const player of candidates) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { _id, _creationTime, queuePosition: _qp, ...rest } = player.sessionPlayer;
+        await ctx.db.replace(player.sessionPlayer._id, { ...rest, status: "playing" });
       }
 
       matchesCreated.push(matchId);
@@ -633,28 +706,31 @@ export const recordMatchScore = mutation({
     }
 
     // 4. Return players to queue (status: queued) and append to end
-    const sessionPlayers = await ctx.db
-      .query("sessionPlayers")
-      .withIndex("by_session", (q) => q.eq("sessionId", match.sessionId))
-      .collect();
-
-    let currentMaxPos = (await getNextQueuePosition(ctx, match.sessionId)) - 1;
-
     // Return players to the queue in a consistent order: losers first, then winners
     // (This is a nice UX touch that rewards winners with a break or gets losers back on court faster)
     const losers = t1Win ? match.team2 : match.team1;
     const wonList = t1Win ? match.team1 : match.team2;
     const returnOrder = [...losers, ...wonList];
 
+    const sessionPlayerRecords = [];
     for (const pId of returnOrder) {
-      const spRecord = sessionPlayers.find((sp) => sp.playerId === pId);
+      const spRecord = await ctx.db
+        .query("sessionPlayers")
+        .withIndex("by_sessionId_and_playerId", (q) =>
+          q.eq("sessionId", match.sessionId).eq("playerId", pId)
+        )
+        .first();
       if (spRecord) {
-        currentMaxPos += 1;
-        await ctx.db.patch(spRecord._id, {
-          status: "queued",
-          queuePosition: currentMaxPos,
-        });
+        sessionPlayerRecords.push(spRecord);
       }
+    }
+
+    const queuePositions = await allocateQueuePositions(ctx, match.sessionId, sessionPlayerRecords.length);
+    for (let index = 0; index < sessionPlayerRecords.length; index++) {
+      await ctx.db.patch(sessionPlayerRecords[index]._id, {
+        status: "queued",
+        queuePosition: queuePositions[index],
+      });
     }
 
     return { success: true };
@@ -667,12 +743,10 @@ export const recordMatchScore = mutation({
 export const getLiveMatches = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
-    const list = await ctx.db
-      .query("sessionMatches")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .collect();
-
-    const active = list.filter((m) => m.status === "pending" || m.status === "in_progress");
+    const active = [
+      ...(await getSessionMatchesByStatus(ctx, args.sessionId, "pending")),
+      ...(await getSessionMatchesByStatus(ctx, args.sessionId, "in_progress")),
+    ];
 
     return await Promise.all(
       active.map(async (m) => {
@@ -696,13 +770,7 @@ export const getLiveMatches = query({
 export const getMatchHistory = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
-    const list = await ctx.db
-      .query("sessionMatches")
-      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .collect();
-
-    const completed = list
-      .filter((m) => m.status === "completed")
+    const completed = (await getSessionMatchesByStatus(ctx, args.sessionId, "completed"))
       .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
 
     return await Promise.all(

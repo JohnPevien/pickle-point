@@ -89,6 +89,27 @@ describe("Open Play Sessions", () => {
       expect(sessions).toHaveLength(2);
     });
 
+    test("listByTenant respects the bounded limit", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+
+      for (let index = 0; index < 3; index++) {
+        await t.mutation(api.openPlaySessions.createSession, {
+          tenantId: tenantId as any,
+          name: `Session ${index}`,
+          date: Date.now() + index,
+          matchingMode: "auto_balanced",
+        });
+      }
+
+      const sessions = await t.query(api.openPlaySessions.listByTenant, {
+        tenantId: tenantId as any,
+        limit: 2,
+      });
+
+      expect(sessions).toHaveLength(2);
+    });
+
     test("updateSessionStatus transitions session to live", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await seedTenant(t);
@@ -284,6 +305,45 @@ describe("Open Play Sessions", () => {
       expect(positions).toEqual([1, 2, 3]);
     });
 
+    test("failed duplicate guest check-in does not consume a queue position", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const sessionId = await createSession(t, tenantId as string);
+
+      await t.mutation(api.openPlaySessions.registerAndCheckInGuest, {
+        tenantId: tenantId as any,
+        sessionId: sessionId as any,
+        firstName: "Jane",
+        lastName: "Doe",
+        skillTier: "Beginner",
+        email: "jane@example.com",
+      });
+
+      const duplicate = await t.mutation(api.openPlaySessions.registerAndCheckInGuest, {
+        tenantId: tenantId as any,
+        sessionId: sessionId as any,
+        firstName: "Jane",
+        lastName: "Doe",
+        skillTier: "Beginner",
+        email: "JANE@example.com",
+      });
+      expect(duplicate.success).toBe(false);
+
+      const nextPlayer = await seedPlayer(t, tenantId as string, { firstName: "Next" });
+      await t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: sessionId as any,
+        playerId: nextPlayer as any,
+      });
+
+      const players = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+      const positions = players
+        .map((sp) => sp.queuePosition)
+        .sort((a, b) => (a ?? 0) - (b ?? 0));
+      expect(positions).toEqual([1, 2]);
+    });
+
     test("updatePlayerStatus moves player to sitting_out", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await seedTenant(t);
@@ -400,6 +460,25 @@ describe("Open Play Sessions", () => {
       expect(liveMatches[0].team2).toHaveLength(2);
     });
 
+    test("generateMatches only assigns players that fit available courts", async () => {
+      const t = convexTest(schema, modules);
+      const { sessionId } = await setupSessionWithPlayers(t, 20);
+
+      const result = await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+
+      expect(result.success).toBe(true);
+      expect((result as any).matches).toHaveLength(4);
+
+      const sessionPlayers = await t.query(
+        api.openPlaySessions.getSessionPlayers,
+        { sessionId: sessionId as any }
+      );
+      expect(sessionPlayers.filter((sp) => sp.status === "playing")).toHaveLength(16);
+      expect(sessionPlayers.filter((sp) => sp.status === "queued")).toHaveLength(4);
+    });
+
     test("generateMatches sets player status to 'playing'", async () => {
       const t = convexTest(schema, modules);
       const { sessionId } = await setupSessionWithPlayers(t, 4);
@@ -452,6 +531,51 @@ describe("Open Play Sessions", () => {
       );
       const queued = sessionPlayers.filter((sp) => sp.status === "queued");
       expect(queued).toHaveLength(4);
+      expect(queued.map((sp) => sp.queuePosition).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([
+        5,
+        6,
+        7,
+        8,
+      ]);
+    });
+
+    test("getLiveMatches returns only active matches", async () => {
+      const t = convexTest(schema, modules);
+      const { sessionId, players } = await setupSessionWithPlayers(t, 4);
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("sessionMatches", {
+          sessionId: sessionId as any,
+          team1: [players[0] as any, players[1] as any],
+          team2: [players[2] as any, players[3] as any],
+          status: "pending",
+          createdAt: Date.now(),
+        });
+        await ctx.db.insert("sessionMatches", {
+          sessionId: sessionId as any,
+          team1: [players[0] as any, players[2] as any],
+          team2: [players[1] as any, players[3] as any],
+          status: "in_progress",
+          createdAt: Date.now(),
+        });
+        await ctx.db.insert("sessionMatches", {
+          sessionId: sessionId as any,
+          team1: [players[0] as any, players[3] as any],
+          team2: [players[1] as any, players[2] as any],
+          score1: 11,
+          score2: 7,
+          status: "completed",
+          createdAt: Date.now(),
+          completedAt: Date.now(),
+        });
+      });
+
+      const liveMatches = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+
+      expect(liveMatches).toHaveLength(2);
+      expect(liveMatches.map((match) => match.status).sort()).toEqual(["in_progress", "pending"]);
     });
 
     test("recordMatchScore rejects tied and negative scores", async () => {

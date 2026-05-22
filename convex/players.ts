@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  findPlayerByContact,
+  legacyContactValue,
+  normalizeEmail,
+  normalizePhone,
+} from "./playerContact";
 
 // Helper validator for registering a single player
 const playerInputValidator = v.object({
@@ -10,6 +16,14 @@ const playerInputValidator = v.object({
   phone: v.optional(v.string()),
   optIn: v.optional(v.boolean()),
 });
+
+function requiredName(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed;
+}
 
 /**
  * Lists all registered players within a Game Master's workspace.
@@ -57,23 +71,27 @@ export const registerTournamentTeam = mutation({
       return { success: false, error: "This tournament is not currently open for registration." };
     }
 
-    // Helper to find a player by email or phone in this tenant
-    const findExistingPlayer = async (email?: string, phone?: string) => {
-      if (email) {
-        const p = await ctx.db
-          .query("players")
-          .withIndex("by_tenantId_and_email", (q) => q.eq("tenantId", args.tenantId).eq("email", email))
-          .first();
-        if (p) return p;
-      }
-      if (phone) {
-        const p = await ctx.db
-          .query("players")
-          .withIndex("by_tenantId_and_phone", (q) => q.eq("tenantId", args.tenantId).eq("phone", phone))
-          .first();
-        if (p) return p;
-      }
-      return null;
+    const p1FirstName = requiredName(args.player1.firstName);
+    if (!p1FirstName) return { success: false, error: "Player 1 first name is required." };
+    const p1LastName = requiredName(args.player1.lastName);
+    if (!p1LastName) return { success: false, error: "Player 1 last name is required." };
+    const p2FirstName = requiredName(args.player2.firstName);
+    if (!p2FirstName) return { success: false, error: "Player 2 first name is required." };
+    const p2LastName = requiredName(args.player2.lastName);
+    if (!p2LastName) return { success: false, error: "Player 2 last name is required." };
+
+    const findExistingPlayer = async (
+      email?: string,
+      phone?: string,
+      legacyEmail?: string,
+      legacyPhone?: string
+    ) => {
+      return await findPlayerByContact(ctx, args.tenantId, {
+        email,
+        phone,
+        legacyEmail,
+        legacyPhone,
+      });
     };
 
     // Helper to see if a player is already registered for this tournament
@@ -96,13 +114,25 @@ export const registerTournamentTeam = mutation({
     };
 
     // Resolve or create Player 1
-    const p1Email = args.player1.email?.trim() || undefined;
-    const p1Phone = args.player1.phone?.trim() || undefined;
+    const p1Email = normalizeEmail(args.player1.email);
+    const p1Phone = normalizePhone(args.player1.phone);
+    const p1LegacyEmail = legacyContactValue(args.player1.email);
+    const p1LegacyPhone = legacyContactValue(args.player1.phone);
+    const p2Email = normalizeEmail(args.player2.email);
+    const p2Phone = normalizePhone(args.player2.phone);
+    const p2LegacyEmail = legacyContactValue(args.player2.email);
+    const p2LegacyPhone = legacyContactValue(args.player2.phone);
     if (!p1Email && !p1Phone) {
       return { success: false, error: "Player 1 must have an email or phone number." };
     }
+    if (!p2Email && !p2Phone) {
+      return { success: false, error: "Player 2 must have an email or phone number." };
+    }
+    if ((p1Email && p1Email === p2Email) || (p1Phone && p1Phone === p2Phone)) {
+      return { success: false, error: "A tournament team must contain two different players." };
+    }
 
-    const p1 = await findExistingPlayer(p1Email, p1Phone);
+    const p1 = await findExistingPlayer(p1Email, p1Phone, p1LegacyEmail, p1LegacyPhone);
     let p1Id: Id<"players">;
 
     if (p1) {
@@ -113,8 +143,8 @@ export const registerTournamentTeam = mutation({
     } else {
       p1Id = await ctx.db.insert("players", {
         tenantId: args.tenantId,
-        firstName: args.player1.firstName.trim(),
-        lastName: args.player1.lastName.trim(),
+        firstName: p1FirstName,
+        lastName: p1LastName,
         skillSource: "manual",
         manualSkillLevel: args.skillTier,
         email: p1Email,
@@ -125,13 +155,7 @@ export const registerTournamentTeam = mutation({
     }
 
     // Resolve or create Player 2
-    const p2Email = args.player2.email?.trim() || undefined;
-    const p2Phone = args.player2.phone?.trim() || undefined;
-    if (!p2Email && !p2Phone) {
-      return { success: false, error: "Player 2 must have an email or phone number." };
-    }
-
-    const p2 = await findExistingPlayer(p2Email, p2Phone);
+    const p2 = await findExistingPlayer(p2Email, p2Phone, p2LegacyEmail, p2LegacyPhone);
     let p2Id: Id<"players">;
 
     if (p2) {
@@ -142,8 +166,8 @@ export const registerTournamentTeam = mutation({
     } else {
       p2Id = await ctx.db.insert("players", {
         tenantId: args.tenantId,
-        firstName: args.player2.firstName.trim(),
-        lastName: args.player2.lastName.trim(),
+        firstName: p2FirstName,
+        lastName: p2LastName,
         skillSource: "manual",
         manualSkillLevel: args.skillTier,
         email: p2Email,
@@ -151,6 +175,10 @@ export const registerTournamentTeam = mutation({
         optIn: args.player2.optIn,
         createdAt: Date.now(),
       });
+    }
+
+    if (p1Id === p2Id) {
+      return { success: false, error: "A tournament team must contain two different players." };
     }
 
     // Create Tournament Entrant
@@ -199,28 +227,25 @@ export const createPlayer = mutation({
     optIn: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const email = args.email?.trim() || undefined;
-    const phone = args.phone?.trim() || undefined;
+    const firstName = requiredName(args.firstName);
+    if (!firstName) return { success: false, error: "First name is required." };
+    const lastName = requiredName(args.lastName);
+    if (!lastName) return { success: false, error: "Last name is required." };
+
+    const email = normalizeEmail(args.email);
+    const phone = normalizePhone(args.phone);
+    const legacyEmail = legacyContactValue(args.email);
+    const legacyPhone = legacyContactValue(args.phone);
 
     if (email) {
-      const existing = await ctx.db
-        .query("players")
-        .withIndex("by_tenantId_and_email", (q) =>
-          q.eq("tenantId", args.tenantId).eq("email", email)
-        )
-        .first();
+      const existing = await findPlayerByContact(ctx, args.tenantId, { email, legacyEmail });
       if (existing) {
         return { success: false, error: "A player with that email already exists in this workspace." };
       }
     }
 
     if (phone) {
-      const existing = await ctx.db
-        .query("players")
-        .withIndex("by_tenantId_and_phone", (q) =>
-          q.eq("tenantId", args.tenantId).eq("phone", phone)
-        )
-        .first();
+      const existing = await findPlayerByContact(ctx, args.tenantId, { phone, legacyPhone });
       if (existing) {
         return { success: false, error: "A player with that phone number already exists in this workspace." };
       }
@@ -228,8 +253,8 @@ export const createPlayer = mutation({
 
     const playerId = await ctx.db.insert("players", {
       tenantId: args.tenantId,
-      firstName: args.firstName.trim(),
-      lastName: args.lastName.trim(),
+      firstName,
+      lastName,
       skillSource: args.skillSource,
       manualSkillLevel: args.manualSkillLevel,
       duprRating: args.duprRating,
@@ -271,8 +296,16 @@ export const updatePlayer = mutation({
 
     const patch: Partial<Doc<"players">> = {};
 
-    if (args.firstName !== undefined) patch.firstName = args.firstName.trim();
-    if (args.lastName !== undefined) patch.lastName = args.lastName.trim();
+    if (args.firstName !== undefined) {
+      const firstName = requiredName(args.firstName);
+      if (!firstName) return { success: false, error: "First name is required." };
+      patch.firstName = firstName;
+    }
+    if (args.lastName !== undefined) {
+      const lastName = requiredName(args.lastName);
+      if (!lastName) return { success: false, error: "Last name is required." };
+      patch.lastName = lastName;
+    }
     if (args.skillSource !== undefined) patch.skillSource = args.skillSource;
     if (args.manualSkillLevel !== undefined) patch.manualSkillLevel = args.manualSkillLevel;
     if (args.duprRating !== undefined) patch.duprRating = args.duprRating;
@@ -283,15 +316,15 @@ export const updatePlayer = mutation({
     if (args.optIn !== undefined) patch.optIn = args.optIn;
 
     if (args.email !== undefined) {
-      const email = args.email.trim() || undefined;
+      const email = normalizeEmail(args.email);
       if (email) {
-        const existing = await ctx.db
-          .query("players")
-          .withIndex("by_tenantId_and_email", (q) =>
-            q.eq("tenantId", player.tenantId).eq("email", email)
-          )
-          .first();
-        if (existing && existing._id !== args.playerId) {
+        const existing = await findPlayerByContact(
+          ctx,
+          player.tenantId,
+          { email, legacyEmail: legacyContactValue(args.email) },
+          args.playerId
+        );
+        if (existing) {
           return { success: false, error: "A player with that email already exists in this workspace." };
         }
       }
@@ -299,15 +332,15 @@ export const updatePlayer = mutation({
     }
 
     if (args.phone !== undefined) {
-      const phone = args.phone.trim() || undefined;
+      const phone = normalizePhone(args.phone);
       if (phone) {
-        const existing = await ctx.db
-          .query("players")
-          .withIndex("by_tenantId_and_phone", (q) =>
-            q.eq("tenantId", player.tenantId).eq("phone", phone)
-          )
-          .first();
-        if (existing && existing._id !== args.playerId) {
+        const existing = await findPlayerByContact(
+          ctx,
+          player.tenantId,
+          { phone, legacyPhone: legacyContactValue(args.phone) },
+          args.playerId
+        );
+        if (existing) {
           return { success: false, error: "A player with that phone number already exists in this workspace." };
         }
       }
@@ -332,11 +365,18 @@ export const deletePlayer = mutation({
 });
 
 export const getPlayerStats = query({
-  args: { playerId: v.id("players") },
+  args: {
+    playerId: v.id("players"),
+    windowDays: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
+    const windowDays = Math.min(Math.max(Math.trunc(args.windowDays ?? 30), 1), 365);
+    const windowStart = Date.now() - windowDays * 24 * 60 * 60 * 1000;
     const snapshots = await ctx.db
       .query("statsSnapshots")
-      .withIndex("by_player", (q) => q.eq("playerId", args.playerId))
+      .withIndex("by_playerId_and_snapshotDate", (q) =>
+        q.eq("playerId", args.playerId).gte("snapshotDate", windowStart)
+      )
       .collect();
 
     if (snapshots.length === 0) {

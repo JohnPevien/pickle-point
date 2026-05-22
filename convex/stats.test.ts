@@ -127,23 +127,40 @@ describe("Stats", () => {
       expect(leaderboard[1].firstName).toBe("Two");
     });
 
-    test("respects the snapshotLimit window", async () => {
+    test("respects the windowDays window", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await seedTenant(t);
       const p1 = await seedPlayer(t, tenantId, "Old");
       const p2 = await seedPlayer(t, tenantId, "Recent");
       const now = Date.now();
 
-      await seedSnapshot(t, tenantId, p1, 10, 0, 100, 10, now - 86_400_000);
+      await seedSnapshot(t, tenantId, p1, 10, 0, 100, 10, now - 2 * 86_400_000);
       await seedSnapshot(t, tenantId, p2, 1, 0, 11, 5, now);
 
       const leaderboard = await t.query(api.stats.getLeaderboard, {
         tenantId: tenantId as any,
-        snapshotLimit: 1,
+        windowDays: 1,
       });
 
       expect(leaderboard).toHaveLength(1);
       expect(leaderboard[0].firstName).toBe("Recent");
+    });
+
+    test("clamps limit to a safe maximum", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+
+      for (let index = 0; index < 110; index++) {
+        const playerId = await seedPlayer(t, tenantId, `P${index}`);
+        await seedSnapshot(t, tenantId, playerId, 110 - index, index, 20, 10);
+      }
+
+      const leaderboard = await t.query(api.stats.getLeaderboard, {
+        tenantId: tenantId as any,
+        limit: 500,
+      });
+
+      expect(leaderboard).toHaveLength(100);
     });
 
     test("includes player name fields in each entry", async () => {

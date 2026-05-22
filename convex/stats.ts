@@ -2,26 +2,37 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 
-const DEFAULT_LEADERBOARD_SNAPSHOT_LIMIT = 500;
-const MAX_LEADERBOARD_SNAPSHOT_LIMIT = 1000;
+const DEFAULT_LEADERBOARD_LIMIT = 25;
+const MAX_LEADERBOARD_LIMIT = 100;
+const DEFAULT_LEADERBOARD_WINDOW_DAYS = 30;
+const MAX_LEADERBOARD_WINDOW_DAYS = 365;
+
+function clampInt(value: number, min: number, max: number) {
+  return Math.min(Math.max(Math.trunc(value), min), max);
+}
 
 export const getLeaderboard = query({
   args: {
     tenantId: v.id("tenants"),
     limit: v.optional(v.number()),
-    snapshotLimit: v.optional(v.number()),
+    windowDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const snapshotLimit = Math.min(
-      Math.max(Math.trunc(args.snapshotLimit ?? DEFAULT_LEADERBOARD_SNAPSHOT_LIMIT), 1),
-      MAX_LEADERBOARD_SNAPSHOT_LIMIT
+    const limit = clampInt(args.limit ?? DEFAULT_LEADERBOARD_LIMIT, 1, MAX_LEADERBOARD_LIMIT);
+    const windowDays = clampInt(
+      args.windowDays ?? DEFAULT_LEADERBOARD_WINDOW_DAYS,
+      1,
+      MAX_LEADERBOARD_WINDOW_DAYS
     );
+    const windowStart = Date.now() - windowDays * 24 * 60 * 60 * 1000;
 
     const snapshots = await ctx.db
       .query("statsSnapshots")
-      .withIndex("by_tenantId_and_snapshotDate", (q) => q.eq("tenantId", args.tenantId))
+      .withIndex("by_tenantId_and_snapshotDate", (q) =>
+        q.eq("tenantId", args.tenantId).gte("snapshotDate", windowStart)
+      )
       .order("desc")
-      .take(snapshotLimit);
+      .collect();
 
     const playerMap = new Map<string, {
       playerId: string;
@@ -55,7 +66,7 @@ export const getLeaderboard = query({
       return (b.pointsFor - b.pointsAgainst) - (a.pointsFor - a.pointsAgainst);
     });
 
-    const top = sorted.slice(0, args.limit ?? 25);
+    const top = sorted.slice(0, limit);
 
     return await Promise.all(
       top.map(async (entry) => {

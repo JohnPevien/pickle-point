@@ -9,6 +9,7 @@
  */
 
 import type * as openPlaySessions from "../openPlaySessions.js";
+import type * as playerContact from "../playerContact.js";
 import type * as players from "../players.js";
 import type * as stats from "../stats.js";
 import type * as tenants from "../tenants.js";
@@ -23,6 +24,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   openPlaySessions: typeof openPlaySessions;
+  playerContact: typeof playerContact;
   players: typeof players;
   stats: typeof stats;
   tenants: typeof tenants;
