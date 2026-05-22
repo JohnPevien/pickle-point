@@ -132,6 +132,53 @@ describe("Players", () => {
       expect(updated?.manualSkillLevel).toBe("Advanced");
     });
 
+    test("trims updated email and phone values", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const playerId = await seedPlayer(t, tenantId, { firstName: "Trim" });
+
+      const result = await t.mutation(api.players.updatePlayer, {
+        playerId: playerId as any,
+        email: " trim@example.com ",
+        phone: " 555-1234 ",
+      });
+
+      expect(result.success).toBe(true);
+      const updated = await t.query(api.players.getById, { playerId: playerId as any });
+      expect(updated?.email).toBe("trim@example.com");
+      expect(updated?.phone).toBe("555-1234");
+    });
+
+    test("rejects duplicate email updates within the same tenant", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      await seedPlayer(t, tenantId, { email: "taken@example.com" });
+      const playerId = await seedPlayer(t, tenantId, { email: "available@example.com" });
+
+      const result = await t.mutation(api.players.updatePlayer, {
+        playerId: playerId as any,
+        email: " taken@example.com ",
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/email/i);
+    });
+
+    test("rejects duplicate phone updates within the same tenant", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      await seedPlayer(t, tenantId, { phone: "555-0001" });
+      const playerId = await seedPlayer(t, tenantId, { phone: "555-0002" });
+
+      const result = await t.mutation(api.players.updatePlayer, {
+        playerId: playerId as any,
+        phone: " 555-0001 ",
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/phone/i);
+    });
+
     test("returns error for non-existent player", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await seedTenant(t);

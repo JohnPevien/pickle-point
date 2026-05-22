@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 // Skill mapping for numerical comparison and balancing
 const SKILL_MAP: Record<string, number> = {
@@ -10,6 +11,21 @@ const SKILL_MAP: Record<string, number> = {
   "High Intermediate": 4.0,
   "Advanced": 5.0,
 };
+
+async function getNextQueuePosition(
+  ctx: MutationCtx,
+  sessionId: Id<"openPlaySessions">
+) {
+  const queuedTail = await ctx.db
+    .query("sessionPlayers")
+    .withIndex("by_sessionId_and_status_and_queuePosition", (q) =>
+      q.eq("sessionId", sessionId).eq("status", "queued")
+    )
+    .order("desc")
+    .first();
+
+  return (queuedTail?.queuePosition ?? 0) + 1;
+}
 
 /**
  * ---------------------------------------------------------------------------
@@ -86,6 +102,11 @@ export const updateSessionStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+
     await ctx.db.patch(args.sessionId, { status: args.status });
     return { success: true };
   },
@@ -106,6 +127,11 @@ export const updateSessionMatchingMode = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+
     await ctx.db.patch(args.sessionId, { matchingMode: args.matchingMode });
     return { success: true };
   },
@@ -128,6 +154,20 @@ export const checkInPlayer = mutation({
     playerId: v.id("players"),
   },
   handler: async (ctx, args) => {
+    const [session, player] = await Promise.all([
+      ctx.db.get(args.sessionId),
+      ctx.db.get(args.playerId),
+    ]);
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
+    if (player.tenantId !== session.tenantId) {
+      return { success: false, error: "Player workspace mismatch." };
+    }
+
     // Check if already checked in
     const existing = await ctx.db
       .query("sessionPlayers")
@@ -140,23 +180,12 @@ export const checkInPlayer = mutation({
       return { success: false, error: "Player is already checked in to this session." };
     }
 
-    // Determine queue position (max + 1)
-    const queuedPlayers = await ctx.db
-      .query("sessionPlayers")
-      .withIndex("by_sessionId_and_status", (q) =>
-        q.eq("sessionId", args.sessionId).eq("status", "queued")
-      )
-      .collect();
-
-    const maxPos = queuedPlayers.reduce(
-      (max, p) => Math.max(max, p.queuePosition ?? 0),
-      0
-    );
+    const queuePosition = await getNextQueuePosition(ctx, args.sessionId);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
         status: "queued",
-        queuePosition: maxPos + 1,
+        queuePosition,
         checkedInAt: Date.now(),
       });
     } else {
@@ -164,7 +193,7 @@ export const checkInPlayer = mutation({
         sessionId: args.sessionId,
         playerId: args.playerId,
         status: "queued",
-        queuePosition: maxPos + 1,
+        queuePosition,
         checkedInAt: Date.now(),
       });
     }
@@ -194,6 +223,14 @@ export const registerAndCheckInGuest = mutation({
     gender: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+    if (session.tenantId !== args.tenantId) {
+      return { success: false, error: "Session workspace mismatch." };
+    }
+
     // 1. Resolve or create Player
     const email = args.email?.trim() || undefined;
     const phone = args.phone?.trim() || undefined;
@@ -234,18 +271,7 @@ export const registerAndCheckInGuest = mutation({
     }
 
     // 2. Check in the player
-    // Determine queue position (max + 1)
-    const queuedPlayers = await ctx.db
-      .query("sessionPlayers")
-      .withIndex("by_sessionId_and_status", (q) =>
-        q.eq("sessionId", args.sessionId).eq("status", "queued")
-      )
-      .collect();
-
-    const maxPos = queuedPlayers.reduce(
-      (max, p) => Math.max(max, p.queuePosition ?? 0),
-      0
-    );
+    const queuePosition = await getNextQueuePosition(ctx, args.sessionId);
 
     const existingSessionPlayer = await ctx.db
       .query("sessionPlayers")
@@ -260,7 +286,7 @@ export const registerAndCheckInGuest = mutation({
       }
       await ctx.db.patch(existingSessionPlayer._id, {
         status: "queued",
-        queuePosition: maxPos + 1,
+        queuePosition,
         checkedInAt: Date.now(),
       });
     } else {
@@ -268,7 +294,7 @@ export const registerAndCheckInGuest = mutation({
         sessionId: args.sessionId,
         playerId,
         status: "queued",
-        queuePosition: maxPos + 1,
+        queuePosition,
         checkedInAt: Date.now(),
       });
     }
@@ -305,17 +331,8 @@ export const updatePlayerStatus = mutation({
     }
 
     if (args.status === "queued") {
-      const queuedPlayers = await ctx.db
-        .query("sessionPlayers")
-        .withIndex("by_sessionId_and_status", (q) =>
-          q.eq("sessionId", args.sessionId).eq("status", "queued")
-        )
-        .collect();
-      const maxPos = queuedPlayers.reduce(
-        (max, p) => Math.max(max, p.queuePosition ?? 0),
-        0
-      );
-      await ctx.db.patch(record._id, { status: args.status, queuePosition: maxPos + 1 });
+      const queuePosition = await getNextQueuePosition(ctx, args.sessionId);
+      await ctx.db.patch(record._id, { status: args.status, queuePosition });
     } else {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id, _creationTime, queuePosition: _qp, ...rest } = record;
@@ -366,6 +383,9 @@ export const generateMatches = mutation({
     const session = await ctx.db.get(args.sessionId);
     if (!session) {
       return { success: false, error: "Session not found." };
+    }
+    if (session.status !== "live") {
+      return { success: false, error: "Matches can only be generated for live sessions." };
     }
 
     // 1. Determine how many courts are available
@@ -542,6 +562,12 @@ export const recordMatchScore = mutation({
     if (!session) {
       return { success: false, error: "Associated session not found." };
     }
+    if (args.score1 < 0 || args.score2 < 0) {
+      return { success: false, error: "Scores cannot be negative." };
+    }
+    if (args.score1 === args.score2) {
+      return { success: false, error: "Tied scores are not supported." };
+    }
 
     // 1. Update the match document
     await ctx.db.patch(args.matchId, {
@@ -570,9 +596,10 @@ export const recordMatchScore = mutation({
 
       const existing = await ctx.db
         .query("statsSnapshots")
-        .withIndex("by_player", (q) => q.eq("playerId", pId))
-        .collect()
-        .then((snapshots) => snapshots.find((s) => s.snapshotDate === snapshotDate));
+        .withIndex("by_playerId_and_snapshotDate", (q) =>
+          q.eq("playerId", pId).eq("snapshotDate", snapshotDate)
+        )
+        .first();
 
       if (existing) {
         await ctx.db.patch(existing._id, {
@@ -611,12 +638,7 @@ export const recordMatchScore = mutation({
       .withIndex("by_session", (q) => q.eq("sessionId", match.sessionId))
       .collect();
 
-    // Get current max queue position
-    const queuedPlayers = sessionPlayers.filter((sp) => sp.status === "queued");
-    let currentMaxPos = queuedPlayers.reduce(
-      (max, p) => Math.max(max, p.queuePosition ?? 0),
-      0
-    );
+    let currentMaxPos = (await getNextQueuePosition(ctx, match.sessionId)) - 1;
 
     // Return players to the queue in a consistent order: losers first, then winners
     // (This is a nice UX touch that rewards winners with a break or gets losers back on court faster)

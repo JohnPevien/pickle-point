@@ -177,6 +177,55 @@ describe("Tournaments", () => {
       expect(bracket[0].matches[0].entrant1Name).toBe("Team Alpha");
       expect(bracket[0].matches[0].entrant2Name).toBe("Team Beta");
     });
+
+    test("sorts rounds and matches by round number and match order", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const tournamentId = await seedTournament(t, tenantId);
+      const p1 = await seedPlayer(t, tenantId, "AA");
+      const p2 = await seedPlayer(t, tenantId, "BB");
+      const p3 = await seedPlayer(t, tenantId, "CC");
+      const p4 = await seedPlayer(t, tenantId, "DD");
+      const e1 = await seedEntrant(t, tournamentId, p1, p2, "Team One");
+      const e2 = await seedEntrant(t, tournamentId, p3, p4, "Team Two");
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("tournamentMatches", {
+          tournamentId: tournamentId as any,
+          entrant1Id: e1 as any,
+          entrant2Id: e2 as any,
+          status: "pending",
+          roundNumber: 2,
+          matchOrder: 1,
+          createdAt: Date.now(),
+        });
+        await ctx.db.insert("tournamentMatches", {
+          tournamentId: tournamentId as any,
+          entrant1Id: e1 as any,
+          entrant2Id: e2 as any,
+          status: "pending",
+          roundNumber: 1,
+          matchOrder: 2,
+          createdAt: Date.now(),
+        });
+        await ctx.db.insert("tournamentMatches", {
+          tournamentId: tournamentId as any,
+          entrant1Id: e1 as any,
+          entrant2Id: e2 as any,
+          status: "pending",
+          roundNumber: 1,
+          matchOrder: 1,
+          createdAt: Date.now(),
+        });
+      });
+
+      const bracket = await t.query(api.tournaments.getTournamentBracket, {
+        tournamentId: tournamentId as any,
+      });
+
+      expect(bracket.map((round) => round.round)).toEqual([1, 2]);
+      expect(bracket[0].matches.map((match) => match.matchOrder)).toEqual([1, 2]);
+    });
   });
 
   describe("recordTournamentScore", () => {
@@ -249,6 +298,65 @@ describe("Tournaments", () => {
 
       expect(result.success).toBe(false);
       expect((result as any).error).toMatch(/already completed/i);
+    });
+
+    test("rejects tied, negative, and entrantless scores", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const tournamentId = await seedTournament(t, tenantId);
+      const p1 = await seedPlayer(t, tenantId, "Q");
+      const p2 = await seedPlayer(t, tenantId, "R");
+      const p3 = await seedPlayer(t, tenantId, "S");
+      const p4 = await seedPlayer(t, tenantId, "T");
+      const e1 = await seedEntrant(t, tournamentId, p1, p2, "Team Seven");
+      const e2 = await seedEntrant(t, tournamentId, p3, p4, "Team Eight");
+
+      const matchId = await t.run(async (ctx) => {
+        return await ctx.db.insert("tournamentMatches", {
+          tournamentId: tournamentId as any,
+          entrant1Id: e1 as any,
+          entrant2Id: e2 as any,
+          status: "pending",
+          roundNumber: 1,
+          matchOrder: 1,
+          createdAt: Date.now(),
+        });
+      });
+
+      const tied = await t.mutation(api.tournaments.recordTournamentScore, {
+        matchId: matchId as any,
+        score1: 11,
+        score2: 11,
+      });
+      expect(tied.success).toBe(false);
+      expect((tied as any).error).toMatch(/tied/i);
+
+      const negative = await t.mutation(api.tournaments.recordTournamentScore, {
+        matchId: matchId as any,
+        score1: -1,
+        score2: 11,
+      });
+      expect(negative.success).toBe(false);
+      expect((negative as any).error).toMatch(/negative/i);
+
+      const byeMatchId = await t.run(async (ctx) => {
+        return await ctx.db.insert("tournamentMatches", {
+          tournamentId: tournamentId as any,
+          entrant1Id: e1 as any,
+          status: "pending",
+          roundNumber: 1,
+          matchOrder: 2,
+          createdAt: Date.now(),
+        });
+      });
+
+      const missingEntrant = await t.mutation(api.tournaments.recordTournamentScore, {
+        matchId: byeMatchId as any,
+        score1: 11,
+        score2: 7,
+      });
+      expect(missingEntrant.success).toBe(false);
+      expect((missingEntrant as any).error).toMatch(/two entrants/i);
     });
 
     test("returns error for non-existent match", async () => {

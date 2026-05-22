@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // Helper validator for registering a single player
 const playerInputValidator = v.object({
@@ -268,8 +268,53 @@ export const updatePlayer = mutation({
     if (!player) {
       return { success: false, error: "Player not found." };
     }
-    const { playerId, ...patch } = args;
-    await ctx.db.patch(playerId, patch);
+
+    const patch: Partial<Doc<"players">> = {};
+
+    if (args.firstName !== undefined) patch.firstName = args.firstName.trim();
+    if (args.lastName !== undefined) patch.lastName = args.lastName.trim();
+    if (args.skillSource !== undefined) patch.skillSource = args.skillSource;
+    if (args.manualSkillLevel !== undefined) patch.manualSkillLevel = args.manualSkillLevel;
+    if (args.duprRating !== undefined) patch.duprRating = args.duprRating;
+    if (args.username !== undefined) patch.username = args.username.trim() || undefined;
+    if (args.gender !== undefined) patch.gender = args.gender;
+    if (args.avatarUrl !== undefined) patch.avatarUrl = args.avatarUrl;
+    if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.optIn !== undefined) patch.optIn = args.optIn;
+
+    if (args.email !== undefined) {
+      const email = args.email.trim() || undefined;
+      if (email) {
+        const existing = await ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_email", (q) =>
+            q.eq("tenantId", player.tenantId).eq("email", email)
+          )
+          .first();
+        if (existing && existing._id !== args.playerId) {
+          return { success: false, error: "A player with that email already exists in this workspace." };
+        }
+      }
+      patch.email = email;
+    }
+
+    if (args.phone !== undefined) {
+      const phone = args.phone.trim() || undefined;
+      if (phone) {
+        const existing = await ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_phone", (q) =>
+            q.eq("tenantId", player.tenantId).eq("phone", phone)
+          )
+          .first();
+        if (existing && existing._id !== args.playerId) {
+          return { success: false, error: "A player with that phone number already exists in this workspace." };
+        }
+      }
+      patch.phone = phone;
+    }
+
+    await ctx.db.patch(args.playerId, patch);
     return { success: true };
   },
 });

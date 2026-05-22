@@ -302,8 +302,13 @@ export const getTournamentBracket = query({
       .order("asc")
       .collect();
 
+    const sortedMatches = [...matches].sort((a, b) => {
+      if (a.roundNumber !== b.roundNumber) return a.roundNumber - b.roundNumber;
+      return a.matchOrder - b.matchOrder;
+    });
+
     const enriched = await Promise.all(
-      matches.map(async (match) => {
+      sortedMatches.map(async (match) => {
         const [entrant1, entrant2, winner] = await Promise.all([
           match.entrant1Id ? ctx.db.get(match.entrant1Id) : null,
           match.entrant2Id ? ctx.db.get(match.entrant2Id) : null,
@@ -326,7 +331,10 @@ export const getTournamentBracket = query({
 
     return Object.entries(byRound)
       .sort(([a], [b]) => Number(a) - Number(b))
-      .map(([round, roundMatches]) => ({ round: Number(round), matches: roundMatches }));
+      .map(([round, roundMatches]) => ({
+        round: Number(round),
+        matches: [...roundMatches].sort((a, b) => a.matchOrder - b.matchOrder),
+      }));
   },
 });
 
@@ -344,6 +352,16 @@ export const recordTournamentScore = mutation({
     if (match.status === "completed") {
       return { success: false, error: "Match is already completed." };
     }
+    if (!match.entrant1Id || !match.entrant2Id) {
+      return { success: false, error: "Tournament match must have two entrants before scoring." };
+    }
+    if (args.score1 < 0 || args.score2 < 0) {
+      return { success: false, error: "Scores cannot be negative." };
+    }
+    if (args.score1 === args.score2) {
+      return { success: false, error: "Tied scores are not supported." };
+    }
+
     const winnerId = args.score1 > args.score2 ? match.entrant1Id : match.entrant2Id;
     await ctx.db.patch(args.matchId, {
       score1: args.score1,

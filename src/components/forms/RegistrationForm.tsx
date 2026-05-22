@@ -210,7 +210,7 @@ export function RegistrationForm({ tenantId, tournamentId }: { tenantId: Id<"ten
         <PlayerFields playerNumber={1} control={form.control} />
         <PlayerFields playerNumber={2} control={form.control} />
 
-        <Button type="submit" disabled={isPending} className="w-full bg-(--tenant-primary) hover:opacity-90">
+        <Button type="submit" disabled={isPending} className="w-full bg-[var(--tenant-primary)] hover:opacity-90">
           {isPending ? "Registering..." : "Submit Registration"}
         </Button>
       </form>

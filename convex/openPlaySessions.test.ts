@@ -94,15 +94,34 @@ describe("Open Play Sessions", () => {
       const tenantId = await seedTenant(t);
       const sessionId = await createSession(t, tenantId as string);
 
-      await t.mutation(api.openPlaySessions.updateSessionStatus, {
+      const result = await t.mutation(api.openPlaySessions.updateSessionStatus, {
         sessionId: sessionId as any,
         status: "live",
       });
 
+      expect(result.success).toBe(true);
       const session = await t.query(api.openPlaySessions.getById, {
         sessionId: sessionId as any,
       });
       expect(session?.status).toBe("live");
+    });
+
+    test("updateSessionStatus returns an error for a missing session", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const sessionId = await createSession(t, tenantId as string);
+
+      await t.run(async (ctx) => {
+        await ctx.db.delete(sessionId as any);
+      });
+
+      const result = await t.mutation(api.openPlaySessions.updateSessionStatus, {
+        sessionId: sessionId as any,
+        status: "live",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not found/i);
     });
 
     test("updateSessionMatchingMode changes the matching mode", async () => {
@@ -110,15 +129,34 @@ describe("Open Play Sessions", () => {
       const tenantId = await seedTenant(t);
       const sessionId = await createSession(t, tenantId as string);
 
-      await t.mutation(api.openPlaySessions.updateSessionMatchingMode, {
+      const result = await t.mutation(api.openPlaySessions.updateSessionMatchingMode, {
         sessionId: sessionId as any,
         matchingMode: "mixed_doubles",
       });
 
+      expect(result.success).toBe(true);
       const session = await t.query(api.openPlaySessions.getById, {
         sessionId: sessionId as any,
       });
       expect(session?.matchingMode).toBe("mixed_doubles");
+    });
+
+    test("updateSessionMatchingMode returns an error for a missing session", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const sessionId = await createSession(t, tenantId as string);
+
+      await t.run(async (ctx) => {
+        await ctx.db.delete(sessionId as any);
+      });
+
+      const result = await t.mutation(api.openPlaySessions.updateSessionMatchingMode, {
+        sessionId: sessionId as any,
+        matchingMode: "mixed_doubles",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not found/i);
     });
   });
 
@@ -194,6 +232,31 @@ describe("Open Play Sessions", () => {
       expect(players[0].playerDetails?.firstName).toBe("Jane");
     });
 
+    test("registerAndCheckInGuest rejects a mismatched tenant and session", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const otherTenantId = await t.mutation(internal.tenants.seed, {
+        name: "Other Club",
+        contactEmail: "other@testclub.com",
+      });
+      const sessionId = await createSession(t, tenantId as string);
+
+      const result = await t.mutation(
+        api.openPlaySessions.registerAndCheckInGuest,
+        {
+          tenantId: otherTenantId as any,
+          sessionId: sessionId as any,
+          firstName: "Jane",
+          lastName: "Doe",
+          skillTier: "Beginner",
+          email: "jane.doe@example.com",
+        }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/workspace mismatch/i);
+    });
+
     test("queue positions are sequential for multiple check-ins", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await seedTenant(t);
@@ -251,7 +314,8 @@ describe("Open Play Sessions", () => {
   describe("Match Generation & Scoring", () => {
     async function setupSessionWithPlayers(
       t: ReturnType<typeof convexTest>,
-      count: number = 4
+      count: number = 4,
+      makeLive: boolean = true
     ) {
       const tenantId = await seedTenant(t);
       const sessionId = await createSession(t, tenantId as string);
@@ -267,6 +331,12 @@ describe("Open Play Sessions", () => {
           playerId: pid as any,
         });
         players.push(pid);
+      }
+      if (makeLive) {
+        await t.mutation(api.openPlaySessions.updateSessionStatus, {
+          sessionId: sessionId as any,
+          status: "live",
+        });
       }
       return { tenantId, sessionId, players };
     }
@@ -286,6 +356,10 @@ describe("Open Play Sessions", () => {
         sessionId: sessionId as any,
         playerId: pid2 as any,
       });
+      await t.mutation(api.openPlaySessions.updateSessionStatus, {
+        sessionId: sessionId as any,
+        status: "live",
+      });
 
       const result = await t.mutation(api.openPlaySessions.generateMatches, {
         sessionId: sessionId as any,
@@ -293,6 +367,18 @@ describe("Open Play Sessions", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Not enough players");
+    });
+
+    test("generateMatches rejects sessions that are not live", async () => {
+      const t = convexTest(schema, modules);
+      const { sessionId } = await setupSessionWithPlayers(t, 4, false);
+
+      const result = await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/live sessions/i);
     });
 
     test("generateMatches creates 1 match for 4 queued players", async () => {
@@ -366,6 +452,36 @@ describe("Open Play Sessions", () => {
       );
       const queued = sessionPlayers.filter((sp) => sp.status === "queued");
       expect(queued).toHaveLength(4);
+    });
+
+    test("recordMatchScore rejects tied and negative scores", async () => {
+      const t = convexTest(schema, modules);
+      const { sessionId } = await setupSessionWithPlayers(t, 4);
+
+      await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+
+      const liveMatches = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      const matchId = liveMatches[0]._id;
+
+      const tied = await t.mutation(api.openPlaySessions.recordMatchScore, {
+        matchId: matchId as any,
+        score1: 11,
+        score2: 11,
+      });
+      expect(tied.success).toBe(false);
+      expect(tied.error).toMatch(/tied/i);
+
+      const negative = await t.mutation(api.openPlaySessions.recordMatchScore, {
+        matchId: matchId as any,
+        score1: -1,
+        score2: 11,
+      });
+      expect(negative.success).toBe(false);
+      expect(negative.error).toMatch(/negative/i);
     });
 
     test("recordMatchScore cannot be applied to an already completed match", async () => {

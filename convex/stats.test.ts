@@ -38,7 +38,8 @@ describe("Stats", () => {
     wins: number,
     losses: number,
     pointsFor: number,
-    pointsAgainst: number
+    pointsAgainst: number,
+    snapshotDate: number = Date.now()
   ) {
     return await t.run(async (ctx) => {
       return await ctx.db.insert("statsSnapshots", {
@@ -48,7 +49,7 @@ describe("Stats", () => {
         losses,
         pointsFor,
         pointsAgainst,
-        snapshotDate: Date.now(),
+        snapshotDate,
       });
     });
   }
@@ -124,6 +125,25 @@ describe("Stats", () => {
       expect(leaderboard).toHaveLength(2);
       expect(leaderboard[0].firstName).toBe("One");
       expect(leaderboard[1].firstName).toBe("Two");
+    });
+
+    test("respects the snapshotLimit window", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const p1 = await seedPlayer(t, tenantId, "Old");
+      const p2 = await seedPlayer(t, tenantId, "Recent");
+      const now = Date.now();
+
+      await seedSnapshot(t, tenantId, p1, 10, 0, 100, 10, now - 86_400_000);
+      await seedSnapshot(t, tenantId, p2, 1, 0, 11, 5, now);
+
+      const leaderboard = await t.query(api.stats.getLeaderboard, {
+        tenantId: tenantId as any,
+        snapshotLimit: 1,
+      });
+
+      expect(leaderboard).toHaveLength(1);
+      expect(leaderboard[0].firstName).toBe("Recent");
     });
 
     test("includes player name fields in each entry", async () => {

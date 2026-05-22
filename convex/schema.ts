@@ -97,7 +97,8 @@ export default defineSchema({
   })
     .index("by_session", ["sessionId"])
     .index("by_sessionId_and_playerId", ["sessionId", "playerId"])
-    .index("by_sessionId_and_status", ["sessionId", "status"]),
+    .index("by_sessionId_and_status", ["sessionId", "status"])
+    .index("by_sessionId_and_status_and_queuePosition", ["sessionId", "status", "queuePosition"]),
 
   // 7. Session Matches (Live courts match manager for Open Play)
   sessionMatches: defineTable({
@@ -207,5 +208,7 @@ export default defineSchema({
     snapshotDate: v.number(),
   })
     .index("by_tenant", ["tenantId"])
-    .index("by_player", ["playerId"]),
+    .index("by_tenantId_and_snapshotDate", ["tenantId", "snapshotDate"])
+    .index("by_player", ["playerId"])
+    .index("by_playerId_and_snapshotDate", ["playerId", "snapshotDate"]),
 });

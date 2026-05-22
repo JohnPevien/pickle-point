@@ -2,16 +2,26 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 
+const DEFAULT_LEADERBOARD_SNAPSHOT_LIMIT = 500;
+const MAX_LEADERBOARD_SNAPSHOT_LIMIT = 1000;
+
 export const getLeaderboard = query({
   args: {
     tenantId: v.id("tenants"),
     limit: v.optional(v.number()),
+    snapshotLimit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const snapshotLimit = Math.min(
+      Math.max(Math.trunc(args.snapshotLimit ?? DEFAULT_LEADERBOARD_SNAPSHOT_LIMIT), 1),
+      MAX_LEADERBOARD_SNAPSHOT_LIMIT
+    );
+
     const snapshots = await ctx.db
       .query("statsSnapshots")
-      .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
-      .collect();
+      .withIndex("by_tenantId_and_snapshotDate", (q) => q.eq("tenantId", args.tenantId))
+      .order("desc")
+      .take(snapshotLimit);
 
     const playerMap = new Map<string, {
       playerId: string;
