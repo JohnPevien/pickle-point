@@ -109,10 +109,15 @@ export const createSession = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const name = requiredName(args.name);
+    if (!name) {
+      return { success: false, error: "Session name is required." };
+    }
+
     const sessionId = await ctx.db.insert("openPlaySessions", {
       tenantId: args.tenantId,
       venueId: args.venueId,
-      name: args.name,
+      name,
       date: args.date,
       status: "draft",
       matchingMode: args.matchingMode,

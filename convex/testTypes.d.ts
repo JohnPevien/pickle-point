@@ -1,3 +1,3 @@
 interface ImportMeta {
-  glob<T = unknown>(pattern: string): Record<string, () => Promise<T>>;
+  glob<T = unknown>(pattern: string | string[]): Record<string, () => Promise<T>>;
 }

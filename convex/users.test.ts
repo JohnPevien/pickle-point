@@ -4,7 +4,7 @@ import { expect, test, describe } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
-const modules = import.meta.glob("./**/*.ts");
+const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
 describe("Users", () => {
   async function seedTenant(t: ReturnType<typeof convexTest>) {

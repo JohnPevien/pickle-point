@@ -17,6 +17,14 @@ type RoundRobinMatch = {
 
 const BYE_ID = "BYE";
 
+function requiredName(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed;
+}
+
 /**
  * Lists all tournaments for a given tenant workspace.
  */
@@ -724,9 +732,14 @@ export const createTournament = mutation({
     location: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const name = requiredName(args.name);
+    if (!name) {
+      return { success: false, error: "Tournament name is required." };
+    }
+
     const tournamentId = await ctx.db.insert("tournaments", {
       tenantId: args.tenantId,
-      name: args.name.trim(),
+      name,
       date: args.date,
       format: args.format,
       location: args.location?.trim() || undefined,

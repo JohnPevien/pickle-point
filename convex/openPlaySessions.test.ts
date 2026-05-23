@@ -4,7 +4,7 @@ import { expect, test, describe } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
-const modules = import.meta.glob("./**/*.ts");
+const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
 describe("Open Play Sessions", () => {
   // -------------------------------------------------------------------------
@@ -69,6 +69,23 @@ describe("Open Play Sessions", () => {
       expect(session?.status).toBe("draft");
       expect(session?.name).toBe("Friday Night Open Play");
       expect(session?.matchingMode).toBe("auto_balanced");
+    });
+
+    test("createSession rejects blank names", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+
+      const result = await t.mutation(api.openPlaySessions.createSession, {
+        tenantId: tenantId as any,
+        name: "   ",
+        date: Date.now(),
+        matchingMode: "auto_balanced",
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: "Session name is required.",
+      });
     });
 
     test("listByTenant returns all sessions for the tenant", async () => {

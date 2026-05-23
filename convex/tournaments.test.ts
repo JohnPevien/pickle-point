@@ -5,7 +5,7 @@ import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
-const modules = import.meta.glob("./**/*.ts");
+const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
 describe("Tournaments", () => {
   async function seedTenant(t: ReturnType<typeof convexTest>) {
@@ -94,6 +94,23 @@ describe("Tournaments", () => {
       const tournament = await t.run(async (ctx) => ctx.db.get(id));
       expect(tournament?.status).toBe("draft");
       expect(tournament?.name).toBe("Spring Classic");
+    });
+
+    test("rejects blank tournament names", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+
+      const result = await t.mutation(api.tournaments.createTournament, {
+        tenantId: tenantId as any,
+        name: "   ",
+        date: Date.now(),
+        format: "single_elimination",
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        error: "Tournament name is required.",
+      });
     });
   });
 
