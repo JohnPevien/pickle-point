@@ -97,9 +97,17 @@ export default defineSchema({
   })
     .index("by_session", ["sessionId"])
     .index("by_sessionId_and_playerId", ["sessionId", "playerId"])
-    .index("by_sessionId_and_status", ["sessionId", "status"]),
+    .index("by_sessionId_and_status", ["sessionId", "status"])
+    .index("by_sessionId_and_status_and_queuePosition", ["sessionId", "status", "queuePosition"]),
 
-  // 7. Session Matches (Live courts match manager for Open Play)
+  // 7. Session Queue Counters (append-only queue position allocation)
+  sessionQueueCounters: defineTable({
+    sessionId: v.id("openPlaySessions"),
+    nextPosition: v.number(),
+    updatedAt: v.number(),
+  }).index("by_sessionId", ["sessionId"]),
+
+  // 8. Session Matches (Live courts match manager for Open Play)
   sessionMatches: defineTable({
     sessionId: v.id("openPlaySessions"),
     courtName: v.optional(v.string()),
@@ -114,9 +122,11 @@ export default defineSchema({
     ),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
-  }).index("by_session", ["sessionId"]),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_sessionId_and_status", ["sessionId", "status"]),
 
-  // 8. Match History (Consolidated historical game records)
+  // 9. Match History (Consolidated historical game records)
   matchHistory: defineTable({
     tenantId: v.id("tenants"),
     sessionId: v.optional(v.id("openPlaySessions")),
@@ -129,7 +139,7 @@ export default defineSchema({
     .index("by_tenant", ["tenantId"])
     .index("by_player", ["players"]),
 
-  // 9. Tournaments
+  // 10. Tournaments
   tournaments: defineTable({
     tenantId: v.id("tenants"),
     name: v.string(),
@@ -154,7 +164,7 @@ export default defineSchema({
     .index("by_tenant", ["tenantId"])
     .index("by_tenantId_and_status", ["tenantId", "status"]),
 
-  // 10. Tournament Entrants (Fixed Doubles Teams)
+  // 11. Tournament Entrants (Fixed Doubles Teams)
   tournamentEntrants: defineTable({
     tournamentId: v.id("tournaments"),
     name: v.string(),
@@ -175,7 +185,7 @@ export default defineSchema({
     .index("by_tournamentId_and_player2Id", ["tournamentId", "player2Id"])
     .index("by_tournamentId_and_player1Id_and_player2Id", ["tournamentId", "player1Id", "player2Id"]),
 
-  // 11. Tournament Matches (The bracket structure)
+  // 12. Tournament Matches (The bracket structure)
   tournamentMatches: defineTable({
     tournamentId: v.id("tournaments"),
     entrant1Id: v.optional(v.id("tournamentEntrants")), // optional for Byes or TBDs
@@ -191,12 +201,31 @@ export default defineSchema({
     roundNumber: v.number(),
     matchOrder: v.number(),
     winnerId: v.optional(v.id("tournamentEntrants")),
+    skillTier: v.optional(v.union(
+      v.literal("Beginner"),
+      v.literal("Novice"),
+      v.literal("Low Intermediate"),
+      v.literal("High Intermediate"),
+      v.literal("Advanced")
+    )),
+    bracketStage: v.optional(v.union(
+      v.literal("round_robin"),
+      v.literal("single_elimination"),
+      v.literal("winners"),
+      v.literal("losers"),
+      v.literal("grand_final")
+    )),
+    entrant1SourceMatchId: v.optional(v.id("tournamentMatches")),
+    entrant1SourceOutcome: v.optional(v.union(v.literal("winner"), v.literal("loser"))),
+    entrant2SourceMatchId: v.optional(v.id("tournamentMatches")),
+    entrant2SourceOutcome: v.optional(v.union(v.literal("winner"), v.literal("loser"))),
+    isIfNecessary: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_tournament", ["tournamentId"])
     .index("by_tournamentId_and_roundNumber", ["tournamentId", "roundNumber"]),
 
-  // 12. Player Stats Snapshots
+  // 13. Player Stats Snapshots
   statsSnapshots: defineTable({
     tenantId: v.id("tenants"),
     playerId: v.id("players"),
@@ -207,5 +236,7 @@ export default defineSchema({
     snapshotDate: v.number(),
   })
     .index("by_tenant", ["tenantId"])
-    .index("by_player", ["playerId"]),
+    .index("by_tenantId_and_snapshotDate", ["tenantId", "snapshotDate"])
+    .index("by_player", ["playerId"])
+    .index("by_playerId_and_snapshotDate", ["playerId", "snapshotDate"]),
 });

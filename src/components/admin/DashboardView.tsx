@@ -9,6 +9,8 @@ import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 
+const TIERS = ["Beginner", "Novice", "Low Intermediate", "High Intermediate", "Advanced"] as const;
+
 type Team = {
   id: string;
   name: string;
@@ -19,24 +21,22 @@ type Team = {
 type Tournament = {
   _id: Id<"tournaments">;
   name: string;
-  status: string | null;
+  status: string;
   date: number;
 };
 
-export function DashboardView({ 
-  tenantId, 
-  tournaments, 
-  teams 
-}: { 
-  tenantId: Id<"tenants">, 
-  tournaments: Tournament[], 
-  teams: Team[] 
+export function DashboardView({
+  tenantId,
+  activeTournament,
+  teams,
+}: {
+  tenantId: Id<"tenants">;
+  activeTournament: Tournament | undefined;
+  teams: Team[];
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const generateBracket = useMutation(api.tournaments.generateBracket);
-
-  const activeTournament = tournaments.find(t => t.status === "registration_open" || t.status === "draft" || t.status === "bracket_generated" || t.status === "live");
 
   const handleGenerateBracket = () => {
     if (!activeTournament) return;
@@ -50,8 +50,8 @@ export function DashboardView({
         } else {
           toast.error(res.error || "Failed");
         }
-      } catch (err: any) {
-        toast.error(err.message || "Failed to generate bracket.");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to generate bracket.");
       }
     });
   };
@@ -70,14 +70,11 @@ export function DashboardView({
     );
   }
 
-  // Group teams securely for the UI
   const groupedTeams = teams.reduce((acc, t) => {
     if (!acc[t.skillTier]) acc[t.skillTier] = [];
     acc[t.skillTier].push(t);
     return acc;
   }, {} as Record<string, Team[]>);
-
-  const tiers = ["Beginner", "Novice", "Low Intermediate", "High Intermediate", "Advanced"];
 
   return (
     <div className="space-y-8">
@@ -98,7 +95,7 @@ export function DashboardView({
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {tiers.map(tier => (
+        {TIERS.map(tier => (
           <Card key={tier}>
             <CardHeader className="bg-muted/40">
               <CardTitle className="text-lg">{tier}</CardTitle>
