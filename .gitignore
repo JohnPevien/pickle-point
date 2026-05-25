@@ -42,3 +42,4 @@ local.env
 *.tsbuildinfo
 next-env.d.ts
 /.tmp/
+.pnpm-store/
