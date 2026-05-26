@@ -1,6 +1,8 @@
 # Pickle Point
 
-A white-labeled, multi-tenant B2B SaaS application for pickleball tournament management. Built for community coordinators (Game Masters) to organize and run pickleball tournaments with registration, bracket generation, court allocation, and score tracking.
+Pickle Point is a white-labeled, multi-tenant pickleball operations app for Game Masters: venue owners, club organizers, and anyone running open play sessions or mini tournaments.
+
+The current MVP direction uses Convex for persistence and realtime sync, with browser-openable living documentation available at `/docs`.
 
 ## Tech Stack
 
@@ -10,7 +12,8 @@ A white-labeled, multi-tenant B2B SaaS application for pickleball tournament man
 | Language | TypeScript 5.x |
 | Runtime | Node.js 20+ |
 | UI | React 19, Tailwind CSS 4, Radix UI + shadcn/ui |
-| Database | Turso (libSQL) with Drizzle ORM |
+| Backend | Convex |
+| Docs | Fumadocs + MDX |
 | State | Zustand |
 | Package Manager | pnpm |
 
@@ -18,34 +21,40 @@ A white-labeled, multi-tenant B2B SaaS application for pickleball tournament man
 
 - Node.js 20+
 - pnpm
+- A Convex project for local backend development
 
 ## Installation
 
-1. **Clone the repository**
+1. Clone the repository:
+
    ```bash
    git clone <repository-url>
    cd pickle-point
    ```
 
-2. **Install dependencies**
+2. Install dependencies:
+
    ```bash
    pnpm install
    ```
 
-3. **Set up environment variables**
+3. Set up environment variables:
+
    ```bash
-   # Copy local.env to .env.local and update with your values
    cp local.env .env.local
    ```
 
-   Required environment variables:
-   - `TURSO_DB_URL` - Turso database URL (libsql://...)
-   - `TURSO_DB_TOKEN` - Turso database authentication token
-   - `THEME` - Theme name (e.g., "blackpink")
+   Common local variables:
 
-4. **Run database migrations**
+   - `NEXT_PUBLIC_CONVEX_URL` - Convex deployment URL used by the browser client.
+   - `CONVEX_DEPLOYMENT` - Convex deployment identifier for local tooling.
+   - `THEME` - Optional theme name, currently `gaming` or `blackpink`.
+   - `WORKOS_*` - Recommended future AuthKit configuration values.
+
+4. Start Convex during backend work:
+
    ```bash
-   pnpm drizzle-kit push
+   pnpm exec convex dev
    ```
 
 ## Running the Project
@@ -65,68 +74,48 @@ pnpm lint
 ```
 
 The app will be available at [http://localhost:3000](http://localhost:3000).
+Living documentation is available at [http://localhost:3000/docs](http://localhost:3000/docs).
 
 ## Project Structure
 
-```
+```text
 pickle-point/
+├── convex/               # Convex schema, queries, mutations, and generated types
+├── content/docs/         # Fumadocs MDX product and technical docs
 ├── src/
-│   ├── app/              # Next.js App Router pages
+│   ├── app/              # Next.js App Router pages and routes
 │   ├── components/       # React components
-│   ├── lib/              # Utilities, DB, stores
-│   │   ├── db/           # Drizzle configuration & schema
-│   │   └── validations/  # Zod schemas
-│   └── ...
+│   └── lib/              # Utilities, validation, docs source, and stores
 ├── public/               # Static assets
-├── drizzle/              # Drizzle migrations
-├── drizzle.config.ts     # Drizzle configuration
 └── package.json
 ```
 
-## Features
+## Current Features
 
-### Completed Features
-- **White-Label Configuration** - Dynamic tenant routing with customizable brand colors
-- **Registration Workflow** - Multi-step team/participant registration with duplicate validation
+- White-label tenant routing with configurable theme colors.
+- Convex-backed doubles team registration.
+- Game Master dashboard for viewing registered teams by skill tier.
+- Round-robin tournament bracket generation by skill tier.
+- Versioned in-repo product and technical documentation at `/docs`.
 
-### Pending Features (MVP)
-- Administrative Dashboard & Bracket Generation
-- Real-Time Court Allocation System
-- Score Documentation & Bracket Advancement
+## MVP Backlog
 
-## Database
+The current product and cleanup backlog lives in `PRD-NEW.md`. Key next areas include:
 
-The project uses Drizzle ORM with Turso (libSQL). Schema changes are managed via:
-- `drizzle-kit push` - Push schema changes to database
-- `drizzle-kit studio` - Visual database studio
+- Open play sessions, queue management, and live player views.
+- Tournament match result entry and bracket advancement.
+- Convex-backed realtime subscriptions for player and Game Master screens.
+- Auth identity mapping and account linking with WorkOS AuthKit or another Convex-supported provider.
 
-## Dependencies
+## Backend Notes
 
-### Core
-- `next@16.1.6` - React framework
-- `react@19.2.3` - UI library
-- `typescript@5` - Type safety
+Convex is the target backend for persistence, server functions, and realtime state. Turso, Drizzle schema files, Drizzle migrations, and SQL-first server actions are no longer part of the target architecture.
 
-### UI & Styling
-- `tailwindcss@4` - CSS framework
-- `radix-ui@1.4.3` - Accessible primitives
-- `shadcn@3.8.5` - UI component library
-- `lucide-react@0.575.0` - Icons
-
-### Data & Validation
-- `drizzle-orm@0.45.1` - Database ORM
-- `@libsql/client@0.17.0` - Turso client
-- `zod@4.3.6` - Schema validation
-- `react-hook-form@7.71.2` - Form handling
-
-### State & Utilities
-- `zustand@5.0.11` - State management
-- `sonner@2.0.7` - Toast notifications
-- `tailwind-merge@3.5.0` - Utility for class merging
+When editing Convex code, read `convex/_generated/ai/guidelines.md` first. Those generated project guidelines override generic Convex assumptions.
 
 ## Learn More
 
 - [Next.js Documentation](https://nextjs.org/docs)
-- [Drizzle ORM Docs](https://orm.drizzle.team/)
-- [Turso Documentation](https://docs.turso.tech/)
+- [Convex Documentation](https://docs.convex.dev/)
+- [Fumadocs Documentation](https://fumadocs.dev/)
 - [shadcn/ui](https://ui.shadcn.com/)
