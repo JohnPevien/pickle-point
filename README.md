@@ -87,7 +87,6 @@ pickle-point/
 │   ├── components/       # React components
 │   └── lib/              # Utilities, validation, docs source, and stores
 ├── public/               # Static assets
-├── local.env             # Local environment template
 └── package.json
 ```
 
