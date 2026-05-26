@@ -22,6 +22,7 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
 - Node.js 22.11+
 - pnpm
 - A Convex project for local backend development
+- WorkOS AuthKit credentials for protected Game Master routes
 
 ## Installation
 
@@ -49,7 +50,10 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
    - `NEXT_PUBLIC_CONVEX_URL` - Convex deployment URL used by the browser client.
    - `CONVEX_DEPLOYMENT` - Convex deployment identifier for local tooling.
    - `THEME` - Optional theme name, currently `gaming` or `blackpink`.
-   - `WORKOS_*` - Recommended future AuthKit configuration values.
+   - `WORKOS_CLIENT_ID` - WorkOS AuthKit client ID.
+   - `WORKOS_API_KEY` - WorkOS API key. Keep this server-side only.
+   - `WORKOS_COOKIE_PASSWORD` - AuthKit session cookie secret, at least 32 characters.
+   - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` - AuthKit callback URL, usually `http://localhost:3000/callback`.
 
 4. Start Convex during backend work:
 
@@ -94,6 +98,7 @@ pickle-point/
 
 - White-label tenant routing with configurable theme colors.
 - Convex-backed doubles team registration.
+- WorkOS AuthKit session wiring for protected Game Master admin routes.
 - Game Master dashboard for viewing registered teams by skill tier.
 - Round-robin tournament bracket generation by skill tier.
 - Versioned in-repo product and technical documentation at `/docs`.
@@ -105,7 +110,7 @@ The current product and cleanup backlog lives in `PRD-NEW.md`. Key next areas in
 - Open play sessions, queue management, and live player views.
 - Tournament match result entry and bracket advancement.
 - Convex-backed realtime subscriptions for player and Game Master screens.
-- Auth identity mapping and account linking with WorkOS AuthKit or another Convex-supported provider.
+- Auth identity mapping and account linking on top of WorkOS AuthKit.
 
 ## Backend Notes
 

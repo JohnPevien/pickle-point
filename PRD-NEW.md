@@ -52,7 +52,7 @@ The MVP should support both open play and mini tournaments, with open play treat
 Follow this order to avoid wiring UI to an unfinished backend or protecting routes before auth exists.
 
 - [x] Phase 1 — Backend: all Convex query/mutation modules complete and lint+build passing.
-- [ ] Phase 2 — Auth: WorkOS AuthKit installed, Convex auth config wired, middleware protecting admin routes.
+- [x] Phase 2 — Auth: WorkOS AuthKit installed, Convex auth config wired, middleware protecting admin routes.
 - [ ] Phase 3 — UI: Open Play session screens, live view, and remaining admin screens.
 
 ## Testing Policy
@@ -65,7 +65,7 @@ Every feature must ship with tests. No backend function, UI component, or auth f
 - `pnpm test` must pass before any phase is considered complete.
 
 - [ ] Maintain test coverage as new Convex modules are added.
-- [ ] Add tests for WorkOS auth flows when Phase 2 is implemented.
+- [x] Add tests for WorkOS auth flows when Phase 2 is implemented.
 - [ ] Add tests for any UI components with non-trivial logic when Phase 3 is implemented.
 
 ## ClickUp Delivery Checklist
@@ -168,7 +168,7 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [x] Add Convex query and mutation modules for users/auth mapping, Game Master workspaces, venues/clubs, players, open play sessions, session players, session matches, match history, tournaments, tournament entrants, tournament matches, and stats snapshots.
     - [x] Replace SQL server actions with Convex functions.
     - [ ] Replace polling live pages with Convex realtime subscriptions.
-    - [ ] Update environment documentation for Convex and WorkOS/AuthKit.
+    - [x] Update environment documentation for Convex and WorkOS/AuthKit.
 - [x] Review archived prototype and keep only approved concepts.
   - [x] Review `stash@{0}`, the archive branch, and the patch backup for useful ideas only.
   - [x] Keep useful concepts if still aligned with this PRD:
