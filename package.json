@@ -31,11 +31,14 @@
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
+  "engines": {
+    "node": ">=22.11.0"
+  },
   "devDependencies": {
     "@edge-runtime/vm": "^4.0.3",
     "@tailwindcss/postcss": "^4",
     "@types/mdx": "^2.0.13",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "convex-test": "^0.0.53",

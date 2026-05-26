@@ -1,4 +1,10 @@
-const clientId = process.env.WORKOS_CLIENT_ID ?? "";
+const clientId = process.env.WORKOS_CLIENT_ID;
+
+if (!clientId) {
+  throw new Error(
+    "WORKOS_CLIENT_ID environment variable is required for Convex auth configuration",
+  );
+}
 
 const authConfig = {
   providers: [
