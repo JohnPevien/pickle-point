@@ -4,7 +4,7 @@ const authConfig = {
   providers: clientId
     ? [
         {
-          domain: "https://api.workos.com/",
+          domain: "https://api.workos.com",
           applicationID: clientId,
         },
         {
