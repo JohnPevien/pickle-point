@@ -52,7 +52,7 @@ The MVP should support both open play and mini tournaments, with open play treat
 Follow this order to avoid wiring UI to an unfinished backend or protecting routes before auth exists.
 
 - [x] Phase 1 — Backend: all Convex query/mutation modules complete and lint+build passing.
-- [x] Phase 2 — Auth: WorkOS AuthKit installed, Convex auth config wired, middleware protecting admin routes.
+- [x] Phase 2 — Auth: WorkOS AuthKit installed, Convex auth config wired, layout-based guard protecting admin routes.
 - [ ] Phase 3 — UI: Open Play session screens, live view, and remaining admin screens.
 
 ## Testing Policy
