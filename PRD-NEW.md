@@ -65,7 +65,7 @@ Every feature must ship with tests. No backend function, UI component, or auth f
 - `pnpm test` must pass before any phase is considered complete.
 
 - [ ] Maintain test coverage as new Convex modules are added.
-- [x] Add tests for WorkOS auth flows when Phase 2 is implemented.
+- [ ] Expand WorkOS test coverage beyond env validation/route constants to cover auth routes and `authkitProxy` wiring.
 - [ ] Add tests for any UI components with non-trivial logic when Phase 3 is implemented.
 
 ## ClickUp Delivery Checklist
