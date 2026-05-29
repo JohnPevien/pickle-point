@@ -10,7 +10,7 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
 |----------|------------|
 | Framework | Next.js 16.1.6 |
 | Language | TypeScript 5.x |
-| Runtime | Node.js 20+ |
+| Runtime | Node.js 22.11+ |
 | UI | React 19, Tailwind CSS 4, Radix UI + shadcn/ui |
 | Backend | Convex |
 | Docs | Fumadocs + MDX |
@@ -19,7 +19,7 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22.11+
 - pnpm
 - A Convex project for local backend development
 

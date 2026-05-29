@@ -4,13 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@workos-inc/authkit-nextjs": "^4.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.39.1",
@@ -30,11 +31,14 @@
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
+  "engines": {
+    "node": ">=22.11.0"
+  },
   "devDependencies": {
     "@edge-runtime/vm": "^4.0.3",
     "@tailwindcss/postcss": "^4",
     "@types/mdx": "^2.0.13",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "convex-test": "^0.0.53",
