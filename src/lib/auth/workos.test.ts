@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { hasWorkosAuthConfig, workosAuthRoutes } from "./workos";
+import { canBypassWorkosAuth, hasWorkosAuthConfig, workosAuthRoutes } from "./workos";
 
 describe("WorkOS AuthKit configuration", () => {
   const completeEnv = {
@@ -20,6 +20,12 @@ describe("WorkOS AuthKit configuration", () => {
         WORKOS_COOKIE_PASSWORD: "too-short",
       }),
     ).toBe(false);
+  });
+
+  test("only allows missing AuthKit config to be bypassed outside production", () => {
+    expect(canBypassWorkosAuth({ NODE_ENV: "development" })).toBe(true);
+    expect(canBypassWorkosAuth({ NODE_ENV: "production" })).toBe(false);
+    expect(canBypassWorkosAuth({ ...completeEnv, NODE_ENV: "development" })).toBe(false);
   });
 
   test("keeps the AuthKit route contract explicit", () => {
