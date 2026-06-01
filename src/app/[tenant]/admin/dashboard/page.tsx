@@ -1,7 +1,9 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "../../../../../convex/_generated/api";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { DashboardView } from "@/components/admin/DashboardView";
+import { Button } from "@/components/ui/button";
 
 export default async function AdminDashboardPage({
   params,
@@ -35,8 +37,13 @@ export default async function AdminDashboardPage({
           <h1 className="font-bold text-xl" style={{ color: "var(--tenant-primary)" }}>
             {tenantData.name} - Game Master Dashboard
           </h1>
-          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-primary-foreground font-bold" style={{ backgroundColor: "var(--tenant-primary)" }}>
-            {tenantData.name.charAt(0)}
+          <div className="flex items-center gap-3">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/${tenant}/admin/open-play`}>Open Play</Link>
+            </Button>
+            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-primary-foreground font-bold" style={{ backgroundColor: "var(--tenant-primary)" }}>
+              {tenantData.name.charAt(0)}
+            </div>
           </div>
         </div>
       </header>
