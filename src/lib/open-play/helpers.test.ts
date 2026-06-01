@@ -3,6 +3,8 @@ import {
   buildSessionLeaderboard,
   formatMatchingMode,
   formatSessionStatus,
+  parseScoreInput,
+  parseSessionDateInput,
   playerName,
   sortSessionPlayers,
   teamName,
@@ -34,6 +36,15 @@ describe("open play helpers", () => {
     expect(sorted.map((player) => player.playerDetails?.firstName)).toEqual(["First", "Second", "In"]);
   });
 
+  test("parses session dates and scores before mutations", () => {
+    expect(parseSessionDateInput("2026-06-01T19:30")).toEqual(expect.any(Number));
+    expect(parseSessionDateInput("not-a-date")).toBeNull();
+    expect(parseScoreInput("11")).toBe(11);
+    expect(parseScoreInput("-1")).toBeNull();
+    expect(parseScoreInput("11.5")).toBeNull();
+    expect(parseScoreInput("")).toBeNull();
+  });
+
   test("builds a session leaderboard from completed matches", () => {
     const leaderboard = buildSessionLeaderboard([
       {
@@ -53,5 +64,28 @@ describe("open play helpers", () => {
     expect(leaderboard).toHaveLength(4);
     expect(leaderboard[0]).toMatchObject({ name: "Ada Lovelace", wins: 1, pointDiff: 3 });
     expect(leaderboard[2]).toMatchObject({ name: "Dorothy Vaughan", losses: 1, pointDiff: -3 });
+  });
+
+  test("skips null and unidentifiable players in the session leaderboard", () => {
+    const leaderboard = buildSessionLeaderboard([
+      {
+        team1Details: [null, { firstName: "", lastName: "" }],
+        team2Details: [{ _id: "p2", firstName: "Grace", lastName: "Hopper" }],
+        score1: 9,
+        score2: 11,
+      },
+    ]);
+
+    expect(leaderboard).toEqual([
+      {
+        id: "p2",
+        name: "Grace Hopper",
+        wins: 1,
+        losses: 0,
+        pointsFor: 11,
+        pointsAgainst: 9,
+        pointDiff: 2,
+      },
+    ]);
   });
 });

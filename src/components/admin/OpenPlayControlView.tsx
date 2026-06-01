@@ -36,6 +36,8 @@ import {
   type SessionStatus,
   formatMatchingMode,
   formatSessionStatus,
+  parseScoreInput,
+  parseSessionDateInput,
   sortSessionPlayers,
   teamName,
   toDatetimeLocalValue,
@@ -123,8 +125,13 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
 
   function submitNewSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const date = parseSessionDateInput(newSession.date);
+    if (date === null) {
+      toast.error("Enter a valid session date.");
+      return;
+    }
+
     startTransition(async () => {
-      const date = new Date(newSession.date).getTime();
       const result = await createSession({
         tenantId,
         name: newSession.name,
@@ -215,10 +222,19 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
     });
   }
 
-  function copyLiveLink() {
+  async function copyLiveLink() {
     if (!livePath || typeof window === "undefined") return;
-    void navigator.clipboard.writeText(`${window.location.origin}${livePath}`);
-    toast.success("Live link copied.");
+    if (!navigator.clipboard) {
+      toast.error("Clipboard is unavailable.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${livePath}`);
+      toast.success("Live link copied.");
+    } catch {
+      toast.error("Could not copy live link.");
+    }
   }
 
   return (
@@ -566,14 +582,26 @@ function MatchScoreCard({ match }: { match: LiveMatch }) {
   const [score1, setScore1] = useState("");
   const [score2, setScore2] = useState("");
   const [isPending, startTransition] = useTransition();
+  const parsedScore1 = parseScoreInput(score1);
+  const parsedScore2 = parseScoreInput(score2);
+  const canRecordScore = parsedScore1 !== null && parsedScore2 !== null && parsedScore1 !== parsedScore2;
 
   function submitScore(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (parsedScore1 === null || parsedScore2 === null) {
+      toast.error("Enter whole-number scores.");
+      return;
+    }
+    if (parsedScore1 === parsedScore2) {
+      toast.error("Scores cannot be tied.");
+      return;
+    }
+
     startTransition(async () => {
       const result = await recordMatchScore({
         matchId: match._id,
-        score1: Number(score1),
-        score2: Number(score2),
+        score1: parsedScore1,
+        score2: parsedScore2,
       });
       if (result.success) {
         setScore1("");
@@ -601,6 +629,7 @@ function MatchScoreCard({ match }: { match: LiveMatch }) {
         <Input
           type="number"
           min="0"
+          step="1"
           inputMode="numeric"
           value={score1}
           onChange={(event) => setScore1(event.target.value)}
@@ -609,12 +638,13 @@ function MatchScoreCard({ match }: { match: LiveMatch }) {
         <Input
           type="number"
           min="0"
+          step="1"
           inputMode="numeric"
           value={score2}
           onChange={(event) => setScore2(event.target.value)}
           aria-label="Team 2 score"
         />
-        <Button type="submit" size="icon" disabled={!score1 || !score2 || isPending}>
+        <Button type="submit" size="icon" disabled={!canRecordScore || isPending}>
           <RotateCw />
         </Button>
       </form>

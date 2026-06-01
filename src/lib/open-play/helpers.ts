@@ -92,11 +92,28 @@ export function sortSessionPlayers<T extends SessionPlayerLike>(players: T[]) {
   });
 }
 
+export function parseSessionDateInput(value: string) {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function parseScoreInput(value: string) {
+  if (!value.trim()) return null;
+  const score = Number(value);
+  if (!Number.isFinite(score) || score < 0 || !Number.isInteger(score)) {
+    return null;
+  }
+  return score;
+}
+
 export function buildSessionLeaderboard(matches: CompletedMatchLike[]) {
   const standings = new Map<string, PlayerStanding>();
 
   const ensureStanding = (player: NamedPlayer) => {
+    if (!player) return null;
     const name = playerName(player);
+    if (name === "Unknown player" && !player._id) return null;
+
     const id = player?._id ?? name;
     const existing = standings.get(id);
     if (existing) return existing;
@@ -120,6 +137,7 @@ export function buildSessionLeaderboard(matches: CompletedMatchLike[]) {
 
     for (const player of match.team1Details ?? []) {
       const standing = ensureStanding(player);
+      if (!standing) continue;
       standing.wins += team1Won ? 1 : 0;
       standing.losses += team1Won ? 0 : 1;
       standing.pointsFor += match.score1;
@@ -128,6 +146,7 @@ export function buildSessionLeaderboard(matches: CompletedMatchLike[]) {
 
     for (const player of match.team2Details ?? []) {
       const standing = ensureStanding(player);
+      if (!standing) continue;
       standing.wins += team1Won ? 0 : 1;
       standing.losses += team1Won ? 1 : 0;
       standing.pointsFor += match.score2;
