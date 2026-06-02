@@ -54,6 +54,7 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
    - `WORKOS_API_KEY` - WorkOS API key. Keep this server-side only.
    - `WORKOS_COOKIE_PASSWORD` - AuthKit session cookie secret, at least 32 characters.
    - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` - AuthKit callback URL, usually `http://localhost:3000/callback`.
+   - `CONVEX_AUTH_DISABLE` - Set to `true` only for intentional development auth bypasses; Convex auth fails fast without WorkOS config otherwise.
 
 4. Start Convex during backend work:
 

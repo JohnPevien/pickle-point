@@ -17,6 +17,8 @@ Players are represented by registered player records first. Guest and walk-in pl
 
 Pickle Point uses WorkOS AuthKit with Convex JWT validation for MVP Game Master authentication.
 
+Convex auth configuration fails fast when WorkOS is not configured. Set `WORKOS_CLIENT_ID` for deployed environments, or set `CONVEX_AUTH_DISABLE=true` only when intentionally bypassing auth in development.
+
 AuthKit routes:
 
 - `/sign-in` starts hosted sign-in.

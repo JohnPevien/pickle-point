@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { canBypassWorkosAuth, hasWorkosAuthConfig, workosAuthRoutes } from "./workos";
+import { canBypassWorkosAuth, hasWorkosAuthConfig, requiresWorkosAuth, workosAuthRoutes } from "./workos";
 
 describe("WorkOS AuthKit configuration", () => {
   const completeEnv = {
@@ -36,5 +36,13 @@ describe("WorkOS AuthKit configuration", () => {
       session: "/api/auth/session",
       token: "/api/auth/token",
     });
+  });
+
+  test("identifies routes that require WorkOS configuration", () => {
+    expect(requiresWorkosAuth("/tenant-id/admin/open-play")).toBe(true);
+    expect(requiresWorkosAuth("/callback")).toBe(true);
+    expect(requiresWorkosAuth("/api/auth/token")).toBe(true);
+    expect(requiresWorkosAuth("/tenant-id/register")).toBe(false);
+    expect(requiresWorkosAuth("/tenant-id/open-play/session-id")).toBe(false);
   });
 });

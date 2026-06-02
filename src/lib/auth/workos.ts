@@ -16,6 +16,8 @@ export const workosAuthRoutes = {
   token: "/api/auth/token",
 } as const;
 
+const authRoutePaths = new Set<string>(Object.values(workosAuthRoutes));
+
 export function hasWorkosAuthConfig(env: WorkosAuthEnv) {
   return Boolean(
     env.WORKOS_CLIENT_ID &&
@@ -28,4 +30,13 @@ export function hasWorkosAuthConfig(env: WorkosAuthEnv) {
 
 export function canBypassWorkosAuth(env: WorkosAuthEnv) {
   return env.NODE_ENV !== "production" && !hasWorkosAuthConfig(env);
+}
+
+export function requiresWorkosAuth(pathname: string) {
+  if (authRoutePaths.has(pathname)) {
+    return true;
+  }
+
+  const segments = pathname.split("/").filter(Boolean);
+  return segments.length >= 2 && segments[1] === "admin";
 }

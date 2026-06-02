@@ -10,6 +10,7 @@ import {
   buildSessionLeaderboard,
   formatMatchingMode,
   formatSessionStatus,
+  playerName,
   sortSessionPlayers,
   teamName,
 } from "@/lib/open-play/helpers";
@@ -219,9 +220,7 @@ function PlayerRow({ rank, player }: { rank?: number; player: SessionPlayerRow }
         {rank ?? <Table2 className="size-4" />}
       </div>
       <div className="min-w-0">
-        <p className="truncate font-medium">
-          {player.playerDetails?.firstName} {player.playerDetails?.lastName}
-        </p>
+        <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
         <p className="truncate text-xs text-muted-foreground">{player.playerDetails?.manualSkillLevel ?? "Unrated"}</p>
       </div>
       <Activity className="size-4 text-[var(--tenant-primary)]" />

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useMemo, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState, useTransition } from "react";
 import {
   Activity,
   CheckCircle2,
@@ -38,6 +38,7 @@ import {
   formatSessionStatus,
   parseScoreInput,
   parseSessionDateInput,
+  playerName,
   sortSessionPlayers,
   teamName,
   toDatetimeLocalValue,
@@ -112,7 +113,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
 
   const [newSession, setNewSession] = useState({
     name: "Open Play",
-    date: toDatetimeLocalValue(),
+    date: "",
     matchingMode: "auto_balanced" as MatchingMode,
   });
   const [checkInPlayerId, setCheckInPlayerId] = useState<string>("");
@@ -122,6 +123,17 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
     skillTier: "Low Intermediate" as (typeof SKILL_TIERS)[number],
     gender: "",
   });
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setNewSession((current) => ({
+        ...current,
+        date: toDatetimeLocalValue(),
+      }));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   function submitNewSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -534,9 +546,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                       className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm"
                     >
                       <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {player.playerDetails?.firstName} {player.playerDetails?.lastName}
-                        </p>
+                        <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
                         <p className="truncate text-xs text-muted-foreground">
                           {player.playerDetails?.manualSkillLevel ?? "Unrated"}
                         </p>

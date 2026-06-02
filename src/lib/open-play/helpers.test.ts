@@ -66,10 +66,10 @@ describe("open play helpers", () => {
     expect(leaderboard[2]).toMatchObject({ name: "Dorothy Vaughan", losses: 1, pointDiff: -3 });
   });
 
-  test("skips null and unidentifiable players in the session leaderboard", () => {
+  test("skips null and id-less players in the session leaderboard", () => {
     const leaderboard = buildSessionLeaderboard([
       {
-        team1Details: [null, { firstName: "", lastName: "" }],
+        team1Details: [null, { firstName: "John", lastName: "Smith" }],
         team2Details: [{ _id: "p2", firstName: "Grace", lastName: "Hopper" }],
         score1: 9,
         score2: 11,

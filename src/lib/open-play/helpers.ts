@@ -110,16 +110,14 @@ export function buildSessionLeaderboard(matches: CompletedMatchLike[]) {
   const standings = new Map<string, PlayerStanding>();
 
   const ensureStanding = (player: NamedPlayer) => {
-    if (!player) return null;
+    if (!player?._id) return null;
     const name = playerName(player);
-    if (name === "Unknown player" && !player._id) return null;
 
-    const id = player?._id ?? name;
-    const existing = standings.get(id);
+    const existing = standings.get(player._id);
     if (existing) return existing;
 
     const next = {
-      id,
+      id: player._id,
       name,
       wins: 0,
       losses: 0,
@@ -127,7 +125,7 @@ export function buildSessionLeaderboard(matches: CompletedMatchLike[]) {
       pointsAgainst: 0,
       pointDiff: 0,
     };
-    standings.set(id, next);
+    standings.set(player._id, next);
     return next;
   };
 

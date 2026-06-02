@@ -9,7 +9,7 @@ if (!disableAuth && !clientId) {
 }
 
 const authConfig = {
-  providers: clientId
+  providers: clientId && !disableAuth
     ? [
         {
           domain: "https://api.workos.com",
