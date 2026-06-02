@@ -1,12 +1,16 @@
 import { authkitProxy } from "@workos-inc/authkit-nextjs";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
-import { hasWorkosAuthConfig } from "@/lib/auth/workos";
+import { canBypassWorkosAuth, hasWorkosAuthConfig } from "@/lib/auth/workos";
 
 const authkit = authkitProxy();
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
   if (!hasWorkosAuthConfig(process.env)) {
-    return NextResponse.next();
+    if (canBypassWorkosAuth(process.env)) {
+      return NextResponse.next();
+    }
+
+    return NextResponse.json({ error: "WorkOS AuthKit is not configured." }, { status: 500 });
   }
 
   return authkit(request, event);

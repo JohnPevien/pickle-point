@@ -1,6 +1,7 @@
 const WORKOS_COOKIE_PASSWORD_MIN_LENGTH = 32;
 
 type WorkosAuthEnv = Record<string, string | undefined> & {
+  NODE_ENV?: string;
   WORKOS_CLIENT_ID?: string;
   WORKOS_API_KEY?: string;
   WORKOS_COOKIE_PASSWORD?: string;
@@ -23,4 +24,8 @@ export function hasWorkosAuthConfig(env: WorkosAuthEnv) {
       env.WORKOS_COOKIE_PASSWORD &&
       env.WORKOS_COOKIE_PASSWORD.length >= WORKOS_COOKIE_PASSWORD_MIN_LENGTH,
   );
+}
+
+export function canBypassWorkosAuth(env: WorkosAuthEnv) {
+  return env.NODE_ENV !== "production" && !hasWorkosAuthConfig(env);
 }
