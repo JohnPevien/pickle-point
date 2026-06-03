@@ -129,7 +129,7 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
     }
     const s1Raw = Number(entry.score1);
     const s2Raw = Number(entry.score2);
-    if (!Number.isFinite(s1Raw) || !Number.isFinite(s2Raw) || !Number.isInteger(s1Raw) || !Number.isInteger(s2Raw) || s1Raw < 0 || s2Raw < 0) {
+    if (!Number.isInteger(s1Raw) || !Number.isInteger(s2Raw) || s1Raw < 0 || s2Raw < 0) {
       toast.error("Scores must be non-negative whole numbers.");
       return;
     }

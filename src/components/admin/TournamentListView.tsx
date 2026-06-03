@@ -176,7 +176,15 @@ export function TournamentListView({ tenantId, tenant }: Props) {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <>
+          {tournaments.length > 0 && !showForm && (
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setShowForm(true)}>
+                New Tournament
+              </Button>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tournaments.map((t) => (
             <Link
               key={t._id}
@@ -209,6 +217,7 @@ export function TournamentListView({ tenantId, tenant }: Props) {
             </Link>
           ))}
         </div>
+        </>
       )}
     </div>
   );

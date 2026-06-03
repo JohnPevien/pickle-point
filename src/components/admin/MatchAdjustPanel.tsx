@@ -52,6 +52,17 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
   const [swapA, setSwapA] = useState<string>("");
   const [swapB, setSwapB] = useState<string>("");
 
+  // The swap mutation treats same-team swaps as a no-op (returns success),
+  // so we surface a distinct error in submitSwap and also disable the Swap
+  // button here to give the user immediate visual feedback.
+  const sameTeam =
+    !!swapA &&
+    !!swapB &&
+    ((match.team1Details.some((p) => p?._id === swapA) &&
+      match.team1Details.some((p) => p?._id === swapB)) ||
+      (match.team2Details.some((p) => p?._id === swapA) &&
+        match.team2Details.some((p) => p?._id === swapB)));
+
   // Substitute
   const activePlayerIds = getActivePlayerIds(activeMatches);
   const [outgoing, setOutgoing] = useState<string>("");
@@ -79,6 +90,10 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
     e.preventDefault();
     if (!swapA || !swapB || swapA === swapB) {
       toast.error("Select two different players to swap.");
+      return;
+    }
+    if (sameTeam) {
+      toast.error("Both players are already on the same team.");
       return;
     }
     startTransition(async () => {
@@ -203,7 +218,7 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
               type="submit"
               size="sm"
               variant="outline"
-              disabled={isPending || !swapA || !swapB || swapA === swapB}
+              disabled={isPending || !swapA || !swapB || swapA === swapB || sameTeam}
               className="h-8 w-full"
             >
               Swap

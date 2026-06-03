@@ -68,11 +68,18 @@ export function stageLabel(stage: BracketStage): string {
 }
 
 export function formatTournamentDate(timestamp: number): string {
+  // Tournament dates come from <Input type="date" /> which yields a YYYY-MM-DD
+  // string. When that is parsed upstream via `new Date(date).getTime()`, the
+  // resulting timestamp is UTC midnight. Formatting with toLocaleDateString
+  // without a timeZone would then re-render the date in the viewer's local
+  // timezone, shifting it back one day for anyone west of UTC. Pinning
+  // timeZone to UTC keeps the displayed day equal to the selected day.
   return new Date(timestamp).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 
