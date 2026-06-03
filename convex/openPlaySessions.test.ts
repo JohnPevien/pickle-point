@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { expect, test, describe } from "vitest";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -650,6 +651,402 @@ describe("Open Play Sessions", () => {
 
       expect(result2.success).toBe(false);
       expect(result2.error).toContain("already completed");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Match Adjustment Mutations Tests
+  // -------------------------------------------------------------------------
+  describe("Match Adjustment Mutations", () => {
+    /**
+     * Helper: create a live session with 4 players in an active in-progress match.
+     * If scored=true, sets score1/score2 on the match document directly.
+     */
+    async function setupActiveMatch(
+      t: ReturnType<typeof convexTest>,
+      scored = false
+    ) {
+      const tenantId = await seedTenant(t);
+      const sessionId = await createSession(t, tenantId as string);
+
+      const pids = await Promise.all(
+        ["Alpha", "Beta", "Gamma", "Delta"].map((name) =>
+          seedPlayer(t, tenantId as string, { firstName: name })
+        )
+      );
+
+      for (const pid of pids) {
+        await t.mutation(api.openPlaySessions.checkInPlayer, {
+          sessionId: sessionId as any,
+          playerId: pid as any,
+        });
+      }
+
+      await t.mutation(api.openPlaySessions.updateSessionStatus, {
+        sessionId: sessionId as any,
+        status: "live",
+      });
+
+      // Insert match directly so we control composition
+      const matchId = await t.run(async (ctx) => {
+        return ctx.db.insert("sessionMatches", {
+          sessionId: sessionId as any,
+          courtName: "Court 1",
+          team1: [pids[0] as any, pids[1] as any],
+          team2: [pids[2] as any, pids[3] as any],
+          status: "in_progress",
+          score1: scored ? 5 : undefined,
+          score2: scored ? 3 : undefined,
+          createdAt: Date.now(),
+        });
+      });
+
+      // Mark all four players as "playing"
+      for (const pid of pids) {
+        await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+          sessionId: sessionId as any,
+          playerId: pid as any,
+          status: "playing",
+        });
+      }
+
+      return { tenantId, sessionId, pids, matchId };
+    }
+
+    // --- updateMatchCourt ---
+
+    test("updateMatchCourt renames an active match court", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId } = await setupActiveMatch(t);
+
+      const result = await t.mutation(api.openPlaySessions.updateMatchCourt, {
+        matchId: matchId as any,
+        courtName: "Center Court",
+      });
+
+      expect(result.success).toBe(true);
+      const match = await t.run(async (ctx) => ctx.db.get(matchId as Id<"sessionMatches">));
+      expect(match?.courtName).toBe("Center Court");
+    });
+
+    test("updateMatchCourt rejects renaming a completed match", async () => {
+      const t = convexTest(schema, modules);
+      const { sessionId } = await setupActiveMatch(t);
+
+      const live = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      const matchId = live[0]._id;
+
+      await t.mutation(api.openPlaySessions.recordMatchScore, {
+        matchId: matchId as any,
+        score1: 11,
+        score2: 5,
+      });
+
+      const result = await t.mutation(api.openPlaySessions.updateMatchCourt, {
+        matchId: matchId as any,
+        courtName: "VIP Court",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/completed/i);
+    });
+
+    // --- cancelMatch ---
+
+    test("cancelMatch hides the match from getLiveMatches", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, sessionId } = await setupActiveMatch(t);
+
+      const result = await t.mutation(api.openPlaySessions.cancelMatch, {
+        matchId: matchId as any,
+      });
+
+      expect(result.success).toBe(true);
+
+      const liveMatches = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      expect(liveMatches).toHaveLength(0);
+    });
+
+    test("cancelMatch returns players ahead of the existing queue", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, sessionId, pids, tenantId } = await setupActiveMatch(t);
+
+      // Add a 5th player who should stay at the back of the queue
+      const pid5 = await seedPlayer(t, tenantId as string, { firstName: "Later" });
+      await t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: sessionId as any,
+        playerId: pid5 as any,
+      });
+
+      // Cancel the match — 4 players should return to front
+      await t.mutation(api.openPlaySessions.cancelMatch, {
+        matchId: matchId as any,
+      });
+
+      const sessionPlayers = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+
+      // All 4 cancelled players should be queued
+      const cancelledPlayerIds = new Set(pids.map(String));
+      const returnedPlayers = sessionPlayers.filter(
+        (sp) => cancelledPlayerIds.has(sp.playerId) && sp.status === "queued"
+      );
+      expect(returnedPlayers).toHaveLength(4);
+
+      // 5th player's position should be greater (behind) all cancelled players
+      const pid5Sp = sessionPlayers.find((sp) => sp.playerId === pid5);
+      const maxCancelledPos = Math.max(...returnedPlayers.map((sp) => sp.queuePosition ?? 0));
+      expect((pid5Sp?.queuePosition ?? 0)).toBeGreaterThan(maxCancelledPos);
+    });
+
+    test("cancelMatch rejects a completed match", async () => {
+      const t = convexTest(schema, modules);
+      const { sessionId } = await setupActiveMatch(t);
+
+      const live = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      const matchId = live[0]._id;
+
+      await t.mutation(api.openPlaySessions.recordMatchScore, {
+        matchId: matchId as any,
+        score1: 11,
+        score2: 5,
+      });
+
+      const result = await t.mutation(api.openPlaySessions.cancelMatch, {
+        matchId: matchId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/completed/i);
+    });
+
+    test("cancelMatch rejects a match with scores already recorded", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId } = await setupActiveMatch(t, true); // scored=true
+
+      const result = await t.mutation(api.openPlaySessions.cancelMatch, {
+        matchId: matchId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/scores/i);
+    });
+
+    // --- swapMatchPlayers ---
+
+    test("swapMatchPlayers produces 4 unique players after swap", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, sessionId, pids } = await setupActiveMatch(t);
+
+      // Swap pids[0] (team1) with pids[2] (team2)
+      const result = await t.mutation(api.openPlaySessions.swapMatchPlayers, {
+        matchId: matchId as any,
+        playerAId: pids[0] as any,
+        playerBId: pids[2] as any,
+      });
+
+      expect(result.success).toBe(true);
+
+      const liveMatches = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      const match = liveMatches[0];
+      const allIds = [...match.team1, ...match.team2];
+      expect(new Set(allIds).size).toBe(4);
+      expect(match.team1).toContain(pids[2]);
+      expect(match.team2).toContain(pids[0]);
+    });
+
+    test("swapMatchPlayers rejects a player not in the match", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, pids, tenantId } = await setupActiveMatch(t);
+
+      const outsider = await seedPlayer(t, tenantId as string, { firstName: "Outside" });
+
+      const result = await t.mutation(api.openPlaySessions.swapMatchPlayers, {
+        matchId: matchId as any,
+        playerAId: outsider as any,
+        playerBId: pids[0] as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not in this match/i);
+    });
+
+    test("swapMatchPlayers rejects swapping a player with themselves", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, pids } = await setupActiveMatch(t);
+
+      const result = await t.mutation(api.openPlaySessions.swapMatchPlayers, {
+        matchId: matchId as any,
+        playerAId: pids[0] as any,
+        playerBId: pids[0] as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/themselves/i);
+    });
+
+    // --- substituteMatchPlayer ---
+
+    test("substituteMatchPlayer with queued player succeeds", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, sessionId, pids, tenantId } = await setupActiveMatch(t);
+
+      const pid5 = await seedPlayer(t, tenantId as string, { firstName: "Sub" });
+      await t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: sessionId as any,
+        playerId: pid5 as any,
+      });
+
+      const result = await t.mutation(api.openPlaySessions.substituteMatchPlayer, {
+        matchId: matchId as any,
+        outgoingPlayerId: pids[0] as any,
+        incomingPlayerId: pid5 as any,
+      });
+
+      expect(result.success).toBe(true);
+
+      const sessionPlayers = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+
+      const incomingSP = sessionPlayers.find((sp) => sp.playerId === pid5);
+      const outgoingSP = sessionPlayers.find((sp) => sp.playerId === pids[0]);
+
+      expect(incomingSP?.status).toBe("playing");
+      expect(outgoingSP?.status).toBe("queued");
+    });
+
+    test("substituteMatchPlayer with sitting_out player succeeds", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, sessionId, pids, tenantId } = await setupActiveMatch(t);
+
+      const pid5 = await seedPlayer(t, tenantId as string, { firstName: "Sitter" });
+      await t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: sessionId as any,
+        playerId: pid5 as any,
+      });
+      await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: sessionId as any,
+        playerId: pid5 as any,
+        status: "sitting_out",
+      });
+
+      const result = await t.mutation(api.openPlaySessions.substituteMatchPlayer, {
+        matchId: matchId as any,
+        outgoingPlayerId: pids[1] as any,
+        incomingPlayerId: pid5 as any,
+      });
+
+      expect(result.success).toBe(true);
+
+      const sessionPlayers = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+      const incomingSP = sessionPlayers.find((sp) => sp.playerId === pid5);
+      expect(incomingSP?.status).toBe("playing");
+    });
+
+    test("substituteMatchPlayer rejects incoming player not in session", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, pids, tenantId } = await setupActiveMatch(t);
+
+      const outsider = await seedPlayer(t, tenantId as string, { firstName: "Stranger" });
+
+      const result = await t.mutation(api.openPlaySessions.substituteMatchPlayer, {
+        matchId: matchId as any,
+        outgoingPlayerId: pids[0] as any,
+        incomingPlayerId: outsider as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not checked into/i);
+    });
+
+    test("substituteMatchPlayer rejects incoming player who is already playing", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, pids } = await setupActiveMatch(t);
+
+      // pids[3] is already in the match and marked "playing"
+      const result = await t.mutation(api.openPlaySessions.substituteMatchPlayer, {
+        matchId: matchId as any,
+        outgoingPlayerId: pids[0] as any,
+        incomingPlayerId: pids[3] as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/queued or sitting out/i);
+    });
+
+    test("substituteMatchPlayer is blocked after scores are recorded", async () => {
+      const t = convexTest(schema, modules);
+      const { matchId, sessionId, pids, tenantId } = await setupActiveMatch(t, true);
+
+      const pid5 = await seedPlayer(t, tenantId as string, { firstName: "Late" });
+      await t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: sessionId as any,
+        playerId: pid5 as any,
+      });
+
+      const result = await t.mutation(api.openPlaySessions.substituteMatchPlayer, {
+        matchId: matchId as any,
+        outgoingPlayerId: pids[0] as any,
+        incomingPlayerId: pid5 as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/scoring/i);
+    });
+
+    test("returning from sitting_out appends player to back of queue", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const sessionId = await createSession(t, tenantId as string);
+
+      const [p1, p2, p3] = await Promise.all([
+        seedPlayer(t, tenantId as string, { firstName: "P1" }),
+        seedPlayer(t, tenantId as string, { firstName: "P2" }),
+        seedPlayer(t, tenantId as string, { firstName: "P3" }),
+      ]);
+
+      for (const pid of [p1, p2, p3]) {
+        await t.mutation(api.openPlaySessions.checkInPlayer, {
+          sessionId: sessionId as any,
+          playerId: pid as any,
+        });
+      }
+
+      // Move p1 to sitting_out then return to queue
+      await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: sessionId as any,
+        playerId: p1 as any,
+        status: "sitting_out",
+      });
+      await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: sessionId as any,
+        playerId: p1 as any,
+        status: "queued",
+      });
+
+      const sessionPlayers = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+
+      const p1SP = sessionPlayers.find((sp) => sp.playerId === p1);
+      const p2SP = sessionPlayers.find((sp) => sp.playerId === p2);
+      const p3SP = sessionPlayers.find((sp) => sp.playerId === p3);
+
+      // p1 re-queued should be behind p2 and p3
+      expect((p1SP?.queuePosition ?? 0)).toBeGreaterThan(p2SP?.queuePosition ?? 0);
+      expect((p1SP?.queuePosition ?? 0)).toBeGreaterThan(p3SP?.queuePosition ?? 0);
     });
   });
 });
