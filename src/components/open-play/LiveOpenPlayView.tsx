@@ -4,30 +4,21 @@ import { Activity, Medal, Radio, Table2, Users } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   buildSessionLeaderboard,
   formatMatchingMode,
   formatSessionStatus,
+  playerName,
   sortSessionPlayers,
   teamName,
 } from "@/lib/open-play/helpers";
+import type { LiveMatch, SessionPlayerRow } from "@/lib/open-play/types";
 
 type LiveOpenPlayViewProps = {
   tenantName: string;
   sessionId: Id<"openPlaySessions">;
-};
-
-type PlayerDetails = Pick<Doc<"players">, "_id" | "firstName" | "lastName" | "manualSkillLevel"> | null;
-
-type SessionPlayerRow = Doc<"sessionPlayers"> & {
-  playerDetails: PlayerDetails;
-};
-
-type LiveMatch = Doc<"sessionMatches"> & {
-  team1Details: PlayerDetails[];
-  team2Details: PlayerDetails[];
 };
 
 export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProps) {
@@ -170,11 +161,18 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
             </CardHeader>
             <CardContent className="space-y-2">
               {completedMatches.slice(0, 6).map((match) => (
-                <div key={match._id} className="rounded-md border p-3 text-sm">
+                <div
+                  key={match._id}
+                  className={`rounded-md border p-3 text-sm ${
+                    match.status === "cancelled" ? "opacity-60" : ""
+                  }`}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <span className="truncate">{teamName(match.team1Details)}</span>
                     <span className="font-semibold">
-                      {match.score1} - {match.score2}
+                      {match.status === "cancelled"
+                        ? "Cancelled"
+                        : `${match.score1} - ${match.score2}`}
                     </span>
                   </div>
                   <div className="mt-2 truncate text-muted-foreground">{teamName(match.team2Details)}</div>
@@ -216,12 +214,14 @@ function PlayerRow({ rank, player }: { rank?: number; player: SessionPlayerRow }
   return (
     <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm">
       <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold">
-        {rank ?? <Table2 className="size-4" />}
+        {rank != null ? (
+          <span className="text-[var(--tenant-primary)]">#{rank}</span>
+        ) : (
+          <Table2 className="size-4" />
+        )}
       </div>
       <div className="min-w-0">
-        <p className="truncate font-medium">
-          {player.playerDetails?.firstName} {player.playerDetails?.lastName}
-        </p>
+        <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
         <p className="truncate text-xs text-muted-foreground">{player.playerDetails?.manualSkillLevel ?? "Unrated"}</p>
       </div>
       <Activity className="size-4 text-[var(--tenant-primary)]" />

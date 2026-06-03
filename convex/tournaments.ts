@@ -641,8 +641,12 @@ export const generateBracket = mutation({
     if (tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
-    if (tournament.status !== "registration_open" && tournament.status !== "draft") {
-      return { success: false, error: "Tournament must be in Draft or Registration Open status." };
+    if (
+      tournament.status !== "registration_open" &&
+      tournament.status !== "draft" &&
+      tournament.status !== "registration_closed"
+    ) {
+      return { success: false, error: "Tournament must be in Draft, Registration Open, or Registration Closed status." };
     }
 
     const entrants = await ctx.db
@@ -752,6 +756,7 @@ export const createTournament = mutation({
 
 export const updateTournamentStatus = mutation({
   args: {
+    tenantId: v.id("tenants"),
     tournamentId: v.id("tournaments"),
     status: v.union(
       v.literal("draft"),
@@ -767,6 +772,9 @@ export const updateTournamentStatus = mutation({
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
       return { success: false, error: "Tournament not found." };
+    }
+    if (tournament.tenantId !== args.tenantId) {
+      return { success: false, error: "Tournament workspace mismatch." };
     }
     const allowed = TOURNAMENT_LIFECYCLE[tournament.status] ?? [];
     if (!allowed.includes(args.status)) {
@@ -870,8 +878,100 @@ async function maybeCreateResetFinal(
   });
 }
 
+export const getTournamentView = query({
+  args: {
+    tenantId: v.id("tenants"),
+    tournamentId: v.id("tournaments"),
+  },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament || tournament.tenantId !== args.tenantId) {
+      return null;
+    }
+
+    const entrants = await ctx.db
+      .query("tournamentEntrants")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .collect();
+
+    const teams = await Promise.all(
+      entrants.map(async (entrant) => {
+        const [p1, p2] = await Promise.all([
+          ctx.db.get(entrant.player1Id),
+          ctx.db.get(entrant.player2Id),
+        ]);
+        return {
+          id: entrant._id,
+          name: entrant.name,
+          skillTier: entrant.skillTier,
+          seed: entrant.seed,
+          players: [
+            p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
+            p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
+          ],
+        };
+      })
+    );
+
+    const allMatches = await ctx.db
+      .query("tournamentMatches")
+      .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+      .collect();
+
+    const sortedMatches = [...allMatches].sort((a, b) => {
+      if (a.roundNumber !== b.roundNumber) return a.roundNumber - b.roundNumber;
+      return a.matchOrder - b.matchOrder;
+    });
+
+    const enrichedMatches = await Promise.all(
+      sortedMatches.map(async (match) => {
+        const [entrant1, entrant2, winner] = await Promise.all([
+          match.entrant1Id ? ctx.db.get(match.entrant1Id) : null,
+          match.entrant2Id ? ctx.db.get(match.entrant2Id) : null,
+          match.winnerId ? ctx.db.get(match.winnerId) : null,
+        ]);
+        return {
+          ...match,
+          entrant1Name: entrant1?.name ?? null,
+          entrant2Name: entrant2?.name ?? null,
+          winnerName: winner?.name ?? null,
+        };
+      })
+    );
+
+    const byRound = enrichedMatches.reduce((acc, m) => {
+      if (!acc[m.roundNumber]) acc[m.roundNumber] = [];
+      acc[m.roundNumber].push(m);
+      return acc;
+    }, {} as Record<number, typeof enrichedMatches>);
+
+    const bracketRounds = Object.entries(byRound)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([round, roundMatches]) => ({
+        round: Number(round),
+        matches: [...roundMatches].sort((a, b) => a.matchOrder - b.matchOrder),
+      }));
+
+    const tiers = [...new Set(entrants.map((e) => e.skillTier))];
+    const completedMatches = allMatches.filter((m) => m.status === "completed").length;
+
+    return {
+      tournament,
+      teams,
+      bracketRounds,
+      summary: {
+        totalTeams: entrants.length,
+        completedMatches,
+        totalMatches: allMatches.length,
+        tiers,
+      },
+    };
+  },
+});
+
 export const recordTournamentScore = mutation({
   args: {
+    tenantId: v.id("tenants"),
     matchId: v.id("tournamentMatches"),
     score1: v.number(),
     score2: v.number(),
@@ -881,6 +981,10 @@ export const recordTournamentScore = mutation({
     if (!match) {
       return { success: false, error: "Match not found." };
     }
+    const tournament = await ctx.db.get(match.tournamentId);
+    if (!tournament || tournament.tenantId !== args.tenantId) {
+      return { success: false, error: "Tournament workspace mismatch." };
+    }
     if (match.status === "completed") {
       return { success: false, error: "Match is already completed." };
     }
@@ -889,6 +993,9 @@ export const recordTournamentScore = mutation({
     }
     if (args.score1 < 0 || args.score2 < 0) {
       return { success: false, error: "Scores cannot be negative." };
+    }
+    if (!Number.isInteger(args.score1) || !Number.isInteger(args.score2)) {
+      return { success: false, error: "Scores must be whole numbers." };
     }
     if (args.score1 === args.score2) {
       return { success: false, error: "Tied scores are not supported." };

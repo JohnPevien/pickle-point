@@ -86,6 +86,54 @@ async function getSessionMatchesByStatus(
 }
 
 /**
+ * Allocates N positions at the front of the queue (using a decremented counter).
+ * Players returned here will sort before all normally-queued players (positions >= 1).
+ */
+async function allocateFrontQueuePositions(
+  ctx: MutationCtx,
+  sessionId: Id<"openPlaySessions">,
+  count = 1
+): Promise<number[]> {
+  if (count <= 0) return [];
+
+  const counter = await ctx.db
+    .query("sessionQueueCounters")
+    .withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+    .first();
+
+  if (counter) {
+    const currentFront = counter.frontNextPosition ?? 0;
+    const positions = Array.from({ length: count }, (_, i) => currentFront - i);
+    await ctx.db.patch(counter._id, {
+      frontNextPosition: currentFront - count,
+      updatedAt: Date.now(),
+    });
+    return positions;
+  }
+
+  // Fallback: counter doesn't exist yet. Create it seeded from the existing
+  // tail of the queue so we never hand out positions that collide with players
+  // already enqueued (e.g. a legacy session whose counter was deleted or whose
+  // rows predate the counter feature).
+  const queuedTail = await ctx.db
+    .query("sessionPlayers")
+    .withIndex("by_sessionId_and_status_and_queuePosition", (q) =>
+      q.eq("sessionId", sessionId).eq("status", "queued")
+    )
+    .order("desc")
+    .first();
+  const nextPosition = Math.max(1, (queuedTail?.queuePosition ?? 0) + 1);
+  const positions = Array.from({ length: count }, (_, i) => -i);
+  await ctx.db.insert("sessionQueueCounters", {
+    sessionId,
+    nextPosition,
+    frontNextPosition: -count,
+    updatedAt: Date.now(),
+  });
+  return positions;
+}
+
+/**
  * ---------------------------------------------------------------------------
  * 1. SESSION LIFECYCLE
  * ---------------------------------------------------------------------------
@@ -635,6 +683,9 @@ export const recordMatchScore = mutation({
     if (match.status === "completed") {
       return { success: false, error: "Match is already completed." };
     }
+    if (match.status === "cancelled") {
+      return { success: false, error: "Cannot record a score on a cancelled match." };
+    }
 
     const session = await ctx.db.get(match.sessionId);
     if (!session) {
@@ -770,16 +821,23 @@ export const getLiveMatches = query({
 });
 
 /**
- * Gets historical completed matches for a session.
+ * Gets historical completed AND cancelled matches for a session, sorted
+ * newest-first. Cancelled matches surface here (not in getLiveMatches) so the
+ * Game Master retains a visible audit trail per cancelMatch's contract.
  */
 export const getMatchHistory = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
-    const completed = (await getSessionMatchesByStatus(ctx, args.sessionId, "completed"))
-      .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
+    const [completed, cancelled] = await Promise.all([
+      getSessionMatchesByStatus(ctx, args.sessionId, "completed"),
+      getSessionMatchesByStatus(ctx, args.sessionId, "cancelled"),
+    ]);
+    const historical = [...completed, ...cancelled].sort(
+      (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)
+    );
 
     return await Promise.all(
-      completed.map(async (m) => {
+      historical.map(async (m) => {
         const [team1Players, team2Players] = await Promise.all([
           Promise.all(m.team1.map((id) => ctx.db.get(id))),
           Promise.all(m.team2.map((id) => ctx.db.get(id))),
@@ -791,5 +849,275 @@ export const getMatchHistory = query({
         };
       })
     );
+  },
+});
+
+/**
+ * ---------------------------------------------------------------------------
+ * 4. MATCH ADJUSTMENT (Game Master courtside controls)
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Renames the court for a pending or in-progress match.
+ */
+export const updateMatchCourt = mutation({
+  args: {
+    matchId: v.id("sessionMatches"),
+    courtName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const match = await ctx.db.get(args.matchId);
+    if (!match) {
+      return { success: false, error: "Match not found." };
+    }
+    if (match.status === "completed" || match.status === "cancelled") {
+      return { success: false, error: "Cannot rename a completed or cancelled match." };
+    }
+    const courtName = args.courtName.trim() || undefined;
+    await ctx.db.patch(args.matchId, { courtName });
+    return { success: true };
+  },
+});
+
+/**
+ * Swaps two players between teams within the same active match.
+ * Both playerAId and playerBId must be in this match (either team).
+ * They must be on different teams — swapping within the same team is a no-op.
+ */
+export const swapMatchPlayers = mutation({
+  args: {
+    matchId: v.id("sessionMatches"),
+    playerAId: v.id("players"),
+    playerBId: v.id("players"),
+  },
+  handler: async (ctx, args) => {
+    const match = await ctx.db.get(args.matchId);
+    if (!match) {
+      return { success: false, error: "Match not found." };
+    }
+    if (match.status === "completed" || match.status === "cancelled") {
+      return { success: false, error: "Cannot adjust a completed or cancelled match." };
+    }
+    if (args.playerAId === args.playerBId) {
+      return { success: false, error: "Cannot swap a player with themselves." };
+    }
+
+    const aInTeam1 = match.team1.includes(args.playerAId);
+    const aInTeam2 = match.team2.includes(args.playerAId);
+    const bInTeam1 = match.team1.includes(args.playerBId);
+    const bInTeam2 = match.team2.includes(args.playerBId);
+
+    if (!aInTeam1 && !aInTeam2) {
+      return { success: false, error: "Player A is not in this match." };
+    }
+    if (!bInTeam1 && !bInTeam2) {
+      return { success: false, error: "Player B is not in this match." };
+    }
+    // Same-team swap is a no-op per the docstring — return success without
+    // a DB write.
+    if ((aInTeam1 && bInTeam1) || (aInTeam2 && bInTeam2)) {
+      return { success: true };
+    }
+
+    // Build new teams with A and B positions swapped
+    const newTeam1 = match.team1.map((id) => {
+      if (id === args.playerAId) return args.playerBId;
+      if (id === args.playerBId) return args.playerAId;
+      return id;
+    });
+    const newTeam2 = match.team2.map((id) => {
+      if (id === args.playerAId) return args.playerBId;
+      if (id === args.playerBId) return args.playerAId;
+      return id;
+    });
+
+    // Ensure 4 unique player IDs still
+    const allIds = [...newTeam1, ...newTeam2];
+    if (new Set(allIds).size !== allIds.length) {
+      return { success: false, error: "Swap would result in duplicate players in the match." };
+    }
+
+    await ctx.db.patch(args.matchId, { team1: newTeam1, team2: newTeam2 });
+    return { success: true };
+  },
+});
+
+/**
+ * Substitutes a queued or sitting-out player into an active match, replacing an outgoing player.
+ * - Outgoing player must be in the match (team1 or team2).
+ * - Incoming player must be in the same session, with status "queued" or "sitting_out".
+ * - Incoming player must NOT already be playing in any active match.
+ * - The match must not have scores recorded yet.
+ * - After substitution: incoming → "playing"; outgoing → front of queue.
+ */
+export const substituteMatchPlayer = mutation({
+  args: {
+    matchId: v.id("sessionMatches"),
+    outgoingPlayerId: v.id("players"),
+    incomingPlayerId: v.id("players"),
+  },
+  handler: async (ctx, args) => {
+    if (args.outgoingPlayerId === args.incomingPlayerId) {
+      return { success: false, error: "Outgoing and incoming player cannot be the same." };
+    }
+
+    const match = await ctx.db.get(args.matchId);
+    if (!match) {
+      return { success: false, error: "Match not found." };
+    }
+    if (match.status === "completed" || match.status === "cancelled") {
+      return { success: false, error: "Cannot substitute in a completed or cancelled match." };
+    }
+    if (match.score1 != null || match.score2 != null) {
+      return { success: false, error: "Cannot substitute after scoring has begun." };
+    }
+
+    // Outgoing must be in this match
+    const outInTeam1 = match.team1.includes(args.outgoingPlayerId);
+    const outInTeam2 = match.team2.includes(args.outgoingPlayerId);
+    if (!outInTeam1 && !outInTeam2) {
+      return { success: false, error: "Outgoing player is not in this match." };
+    }
+
+    // Incoming must be checked into this session with eligible status
+    const incomingSP = await ctx.db
+      .query("sessionPlayers")
+      .withIndex("by_sessionId_and_playerId", (q) =>
+        q.eq("sessionId", match.sessionId).eq("playerId", args.incomingPlayerId)
+      )
+      .first();
+
+    if (!incomingSP) {
+      return { success: false, error: "Incoming player is not checked into this session." };
+    }
+    if (incomingSP.status !== "queued" && incomingSP.status !== "sitting_out") {
+      return { success: false, error: "Incoming player must be queued or sitting out." };
+    }
+
+    // Check incoming is not already in another active match
+    const [pendingMatches, inProgressMatches] = await Promise.all([
+      getSessionMatchesByStatus(ctx, match.sessionId, "pending"),
+      getSessionMatchesByStatus(ctx, match.sessionId, "in_progress"),
+    ]);
+    for (const activeMatch of [...pendingMatches, ...inProgressMatches]) {
+      if (activeMatch._id === match._id) continue; // the current match
+      if (
+        activeMatch.team1.includes(args.incomingPlayerId) ||
+        activeMatch.team2.includes(args.incomingPlayerId)
+      ) {
+        return { success: false, error: "Incoming player is already assigned to another active match." };
+      }
+    }
+
+    // Build updated teams
+    const newTeam1 = match.team1.map((id) =>
+      id === args.outgoingPlayerId ? args.incomingPlayerId : id
+    );
+    const newTeam2 = match.team2.map((id) =>
+      id === args.outgoingPlayerId ? args.incomingPlayerId : id
+    );
+
+    // Validate no duplicates in new roster
+    const allIds = [...newTeam1, ...newTeam2];
+    if (new Set(allIds).size !== allIds.length) {
+      return { success: false, error: "Substitution would result in duplicate players in the match." };
+    }
+
+    // Look up outgoing and allocate front position in parallel (independent reads).
+    const [outgoingSP, [frontPosition]] = await Promise.all([
+      ctx.db
+        .query("sessionPlayers")
+        .withIndex("by_sessionId_and_playerId", (q) =>
+          q.eq("sessionId", match.sessionId).eq("playerId", args.outgoingPlayerId)
+        )
+        .first(),
+      allocateFrontQueuePositions(ctx, match.sessionId, 1),
+    ]);
+
+    // Apply the three independent writes in a single transaction batch.
+    const writes: Promise<unknown>[] = [
+      ctx.db.patch(args.matchId, { team1: newTeam1, team2: newTeam2 }),
+      ctx.db.patch(incomingSP._id, { status: "playing", queuePosition: undefined }),
+    ];
+    if (outgoingSP) {
+      writes.push(
+        ctx.db.patch(outgoingSP._id, { status: "queued", queuePosition: frontPosition })
+      );
+    }
+    await Promise.all(writes);
+
+    return { success: true };
+  },
+});
+
+/**
+ * Cancels an unscored, non-completed match.
+ * - Only pending/in_progress matches with no scores can be cancelled.
+ * - All four players return to the front of the queue in their original assignment order.
+ * - The match is retained in DB as a historical record with status "cancelled".
+ */
+export const cancelMatch = mutation({
+  args: {
+    matchId: v.id("sessionMatches"),
+  },
+  handler: async (ctx, args) => {
+    const match = await ctx.db.get(args.matchId);
+    if (!match) {
+      return { success: false, error: "Match not found." };
+    }
+    if (match.status === "completed") {
+      return { success: false, error: "Cannot cancel a completed match." };
+    }
+    if (match.status === "cancelled") {
+      return { success: false, error: "Match is already cancelled." };
+    }
+    if (match.score1 != null || match.score2 != null) {
+      return { success: false, error: "Cannot cancel a match that already has scores recorded." };
+    }
+
+    // Players return to front in original pull order: team1[0], team1[1], team2[0], team2[1].
+    // sortSessionPlayers sorts ascending by queuePosition, so the first player in the
+    // pull order (team1[0]) must receive the smallest position. allocateFrontQueuePositions
+    // returns positions in descending order ([start, start-1, ...]); we reverse so that
+    // team1[0] gets start-N+1 (smallest) and team2[1] gets start (largest).
+    const playerIds = [...match.team1, ...match.team2];
+
+    // Gather sessionPlayer records in parallel
+    const spRecords = (
+      await Promise.all(
+        playerIds.map((pId) =>
+          ctx.db
+            .query("sessionPlayers")
+            .withIndex("by_sessionId_and_playerId", (q) =>
+              q.eq("sessionId", match.sessionId).eq("playerId", pId)
+            )
+            .first()
+        )
+      )
+    ).filter((sp): sp is NonNullable<typeof sp> => sp !== null);
+
+    const ascendingPositions = await allocateFrontQueuePositions(
+      ctx,
+      match.sessionId,
+      spRecords.length
+    );
+    const positions = [...ascendingPositions].reverse();
+
+    await Promise.all(
+      spRecords.map((sp, i) =>
+        ctx.db.patch(sp._id, {
+          status: "queued",
+          queuePosition: positions[i],
+        })
+      )
+    );
+
+    // Mark match as cancelled (retained for history). Set completedAt so
+    // getMatchHistory's newest-first sort treats cancellations the same as
+    // completed matches.
+    await ctx.db.patch(args.matchId, { status: "cancelled", completedAt: Date.now() });
+
+    return { success: true };
   },
 });

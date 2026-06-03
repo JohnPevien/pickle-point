@@ -10,14 +10,17 @@ import {
   ExternalLink,
   Play,
   Plus,
+  QrCode,
   Radio,
   RotateCw,
+  UserMinus,
   UserPlus,
+  UserX,
 } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,30 +37,25 @@ import {
   SKILL_TIERS,
   type MatchingMode,
   type SessionStatus,
+  buildLiveSessionUrl,
   formatMatchingMode,
   formatSessionStatus,
+  formatQueueLabel,
   parseScoreInput,
   parseSessionDateInput,
+  playerName,
   sortSessionPlayers,
   teamName,
   toDatetimeLocalValue,
 } from "@/lib/open-play/helpers";
+import type { LiveMatch, SessionPlayerRow } from "@/lib/open-play/types";
+import { SessionQrPanel } from "@/components/open-play/SessionQrPanel";
+import { MatchAdjustPanel } from "@/components/admin/MatchAdjustPanel";
 
 type OpenPlayControlViewProps = {
   tenantId: Id<"tenants">;
   tenantName: string;
   tenantSlug: string;
-};
-
-type PlayerDetails = Pick<Doc<"players">, "_id" | "firstName" | "lastName" | "manualSkillLevel"> | null;
-
-type SessionPlayerRow = Doc<"sessionPlayers"> & {
-  playerDetails: PlayerDetails;
-};
-
-type LiveMatch = Doc<"sessionMatches"> & {
-  team1Details: PlayerDetails[];
-  team2Details: PlayerDetails[];
 };
 
 const ACTIVE_STATUSES = new Set(["pending", "in_progress"]);
@@ -91,6 +89,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   const checkInPlayer = useMutation(api.openPlaySessions.checkInPlayer);
   const registerGuest = useMutation(api.openPlaySessions.registerAndCheckInGuest);
   const generateMatches = useMutation(api.openPlaySessions.generateMatches);
+  const updatePlayerStatus = useMutation(api.openPlaySessions.updatePlayerStatus);
   const [isPending, startTransition] = useTransition();
 
   const sortedPlayers = useMemo(
@@ -107,8 +106,37 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   const queuedCount = sortedSessionPlayers.filter((player) => player.status === "queued").length;
   const playingCount = sortedSessionPlayers.filter((player) => player.status === "playing").length;
   const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => ACTIVE_STATUSES.has(match.status));
-  const completedCount = matchHistory?.length ?? 0;
-  const livePath = currentSessionId ? `/${tenantSlug}/open-play/${currentSessionId}` : null;
+  // matchHistory includes cancelled matches for the Recent Results card,
+  // but the "Results" metric and "X completed matches" description should
+  // count only completed matches.
+  const completedCount = (matchHistory ?? []).filter((m) => m.status === "completed").length;
+
+  // Assign a 1-based rank to each queued player in display order so the row
+  // label (#1, #2, …) and the formatQueueLabel subtitle can share a single
+  // number without re-counting inside the render.
+  const queueRanked = useMemo(
+    () => {
+      let rank = 0;
+      return sortedSessionPlayers.map((player) => {
+        if (player.status === "queued") rank += 1;
+        return { player, rank: player.status === "queued" ? rank : undefined };
+      });
+    },
+    [sortedSessionPlayers]
+  );
+  // The QR panel is dynamically imported with ssr:false, so the absolute URL is
+  // only consumed on the client. On the server, fall back to the path-only form
+  // to keep the component serialisable and avoid hydration mismatches.
+  const livePath = currentSessionId
+    ? `/${tenantSlug}/open-play/${currentSessionId}`
+    : null;
+  const liveUrl = typeof window === "undefined"
+    ? livePath
+    : livePath
+      ? buildLiveSessionUrl(window.location.origin, tenantSlug, currentSessionId!)
+      : null;
+
+  const [showQr, setShowQr] = useState(false);
 
   const [newSession, setNewSession] = useState({
     name: "Open Play",
@@ -228,13 +256,28 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
       toast.error("Clipboard is unavailable.");
       return;
     }
-
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}${livePath}`);
+      const url = buildLiveSessionUrl(window.location.origin, tenantSlug, currentSessionId!);
+      await navigator.clipboard.writeText(url);
       toast.success("Live link copied.");
     } catch {
       toast.error("Could not copy live link.");
     }
+  }
+
+  function submitPlayerStatusChange(
+    playerId: Id<"players">,
+    status: "sitting_out" | "queued"
+  ) {
+    if (!currentSessionId) return;
+    startTransition(async () => {
+      const result = await updatePlayerStatus({
+        sessionId: currentSessionId,
+        playerId,
+        status,
+      });
+      if (!result.success) toast.error(result.error);
+    });
   }
 
   return (
@@ -255,6 +298,17 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                   <Copy />
                   Copy live link
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowQr((v) => !v)}
+                  aria-expanded={showQr}
+                  id="qr-toggle-btn"
+                >
+                  <QrCode />
+                  {showQr ? "Hide QR" : "Show QR"}
+                </Button>
                 <Button asChild size="sm" className="bg-[var(--tenant-primary)]">
                   <Link href={livePath}>
                     <ExternalLink />
@@ -266,6 +320,14 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
           </div>
         </div>
       </header>
+
+      {showQr && liveUrl && (
+        <div className="border-b bg-muted/50 px-4 py-4">
+          <div className="mx-auto flex max-w-7xl justify-start">
+            <SessionQrPanel url={liveUrl} />
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="space-y-4">
@@ -410,7 +472,12 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                   </Button>
                   <div className="grid gap-3 md:grid-cols-2">
                     {activeMatches.map((match) => (
-                      <MatchScoreCard key={match._id} match={match} />
+                      <MatchScoreCard
+                        key={match._id}
+                        match={match}
+                        sessionPlayers={sortedSessionPlayers as SessionPlayerRow[]}
+                        activeMatches={activeMatches}
+                      />
                     ))}
                     {activeMatches.length === 0 ? (
                       <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
@@ -428,10 +495,17 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {((matchHistory ?? []) as LiveMatch[]).slice(0, 8).map((match) => (
-                    <div key={match._id} className="grid gap-2 rounded-md border p-3 text-sm md:grid-cols-[1fr_auto_1fr]">
+                    <div
+                      key={match._id}
+                      className={`grid gap-2 rounded-md border p-3 text-sm md:grid-cols-[1fr_auto_1fr] ${
+                        match.status === "cancelled" ? "opacity-60" : ""
+                      }`}
+                    >
                       <span>{teamName(match.team1Details)}</span>
                       <span className="font-semibold">
-                        {match.score1} - {match.score2}
+                        {match.status === "cancelled"
+                          ? "Cancelled"
+                          : `${match.score1} - ${match.score2}`}
                       </span>
                       <span className="md:text-right">{teamName(match.team2Details)}</span>
                     </div>
@@ -528,22 +602,48 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                   <CardDescription>{sortedSessionPlayers.length} checked in</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {sortedSessionPlayers.map((player) => (
+                  {queueRanked.map(({ player, rank }) => (
                     <div
                       key={player._id}
-                      className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm"
+                      className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm"
                     >
+                      <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                        {rank ?? "—"}
+                      </div>
                       <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {player.playerDetails?.firstName} {player.playerDetails?.lastName}
-                        </p>
+                        <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {player.playerDetails?.manualSkillLevel ?? "Unrated"}
+                          {formatQueueLabel(player, rank)}
                         </p>
                       </div>
-                      <span className="rounded-md bg-muted px-2 py-1 text-xs capitalize text-muted-foreground">
-                        {player.status.replace("_", " ")}
-                      </span>
+                      <div className="flex gap-1">
+                        {player.status === "queued" && (
+                          <button
+                            type="button"
+                            title="Mark sitting out"
+                            aria-label={`Mark ${playerName(player.playerDetails)} as sitting out`}
+                            disabled={isPending}
+                            onClick={() => submitPlayerStatusChange(player.playerId, "sitting_out")}
+                            className="rounded p-1 text-muted-foreground hover:text-foreground"
+                            id={`sit-out-btn-${player._id}`}
+                          >
+                            <UserMinus className="size-4" />
+                          </button>
+                        )}
+                        {player.status === "sitting_out" && (
+                          <button
+                            type="button"
+                            title="Return to queue"
+                            aria-label={`Return ${playerName(player.playerDetails)} to queue`}
+                            disabled={isPending}
+                            onClick={() => submitPlayerStatusChange(player.playerId, "queued")}
+                            className="rounded p-1 text-muted-foreground hover:text-foreground"
+                            id={`return-queue-btn-${player._id}`}
+                          >
+                            <UserX className="size-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                   {sortedSessionPlayers.length === 0 ? (
@@ -577,7 +677,15 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
   );
 }
 
-function MatchScoreCard({ match }: { match: LiveMatch }) {
+function MatchScoreCard({
+  match,
+  sessionPlayers,
+  activeMatches,
+}: {
+  match: LiveMatch;
+  sessionPlayers: SessionPlayerRow[];
+  activeMatches: LiveMatch[];
+}) {
   const recordMatchScore = useMutation(api.openPlaySessions.recordMatchScore);
   const [score1, setScore1] = useState("");
   const [score2, setScore2] = useState("");
@@ -648,6 +756,7 @@ function MatchScoreCard({ match }: { match: LiveMatch }) {
           <RotateCw />
         </Button>
       </form>
+      <MatchAdjustPanel match={match} sessionPlayers={sessionPlayers} activeMatches={activeMatches} />
     </div>
   );
 }
