@@ -106,7 +106,10 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   const queuedCount = sortedSessionPlayers.filter((player) => player.status === "queued").length;
   const playingCount = sortedSessionPlayers.filter((player) => player.status === "playing").length;
   const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => ACTIVE_STATUSES.has(match.status));
-  const completedCount = matchHistory?.length ?? 0;
+  // matchHistory includes cancelled matches for the Recent Results card,
+  // but the "Results" metric and "X completed matches" description should
+  // count only completed matches.
+  const completedCount = (matchHistory ?? []).filter((m) => m.status === "completed").length;
 
   // Assign a 1-based rank to each queued player in display order so the row
   // label (#1, #2, …) and the formatQueueLabel subtitle can share a single
@@ -618,7 +621,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                           <button
                             type="button"
                             title="Mark sitting out"
-                            aria-label={`Mark ${player.playerDetails?.firstName} as sitting out`}
+                            aria-label={`Mark ${playerName(player.playerDetails)} as sitting out`}
                             disabled={isPending}
                             onClick={() => submitPlayerStatusChange(player.playerId, "sitting_out")}
                             className="rounded p-1 text-muted-foreground hover:text-foreground"
@@ -631,7 +634,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                           <button
                             type="button"
                             title="Return to queue"
-                            aria-label={`Return ${player.playerDetails?.firstName} to queue`}
+                            aria-label={`Return ${playerName(player.playerDetails)} to queue`}
                             disabled={isPending}
                             onClick={() => submitPlayerStatusChange(player.playerId, "queued")}
                             className="rounded p-1 text-muted-foreground hover:text-foreground"

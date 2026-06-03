@@ -914,6 +914,11 @@ export const swapMatchPlayers = mutation({
     if (!bInTeam1 && !bInTeam2) {
       return { success: false, error: "Player B is not in this match." };
     }
+    // Same-team swap is a no-op per the docstring — return success without
+    // a DB write.
+    if ((aInTeam1 && bInTeam1) || (aInTeam2 && bInTeam2)) {
+      return { success: true };
+    }
 
     // Build new teams with A and B positions swapped
     const newTeam1 = match.team1.map((id) => {
@@ -1108,8 +1113,10 @@ export const cancelMatch = mutation({
       )
     );
 
-    // Mark match as cancelled (retained for history)
-    await ctx.db.patch(args.matchId, { status: "cancelled" });
+    // Mark match as cancelled (retained for history). Set completedAt so
+    // getMatchHistory's newest-first sort treats cancellations the same as
+    // completed matches.
+    await ctx.db.patch(args.matchId, { status: "cancelled", completedAt: Date.now() });
 
     return { success: true };
   },

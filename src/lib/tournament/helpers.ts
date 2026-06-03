@@ -144,7 +144,11 @@ export function groupBracketByTierAndStage(rounds: BracketRound[]): GroupedTierS
     "grand_final",
   ];
 
-  return TIER_ORDER.filter((tier) => tierMap.has(tier)).map((tier) => {
+  // Render TIER_ORDER first, then any extra tiers found in the data so
+  // new tiers don't get silently dropped from the bracket view.
+  const orderedTiers = TIER_ORDER.filter((tier) => tierMap.has(tier));
+  const extraTiers = Array.from(tierMap.keys()).filter((tier) => !TIER_ORDER.includes(tier));
+  return [...orderedTiers, ...extraTiers].map((tier) => {
     const stageMap = tierMap.get(tier)!;
     const stages = STAGE_ORDER.filter((s) => stageMap.has(s)).map((stage) => ({
       stage,
@@ -184,12 +188,16 @@ export function computeRoundRobinStandings(
 
   for (const match of matches) {
     if (match.status !== "completed" || !match.entrant1Id || !match.entrant2Id) continue;
+    // Skip matches with missing scores (e.g. walkovers/forfeits): defaulting
+    // null to 0 would create a 0-0 "tie" that the else branch resolves as a
+    // Team 2 win.
+    if (match.score1 == null || match.score2 == null) continue;
     const r1 = records.get(match.entrant1Id);
     const r2 = records.get(match.entrant2Id);
     if (!r1 || !r2) continue;
 
-    const s1 = match.score1 ?? 0;
-    const s2 = match.score2 ?? 0;
+    const s1 = match.score1;
+    const s2 = match.score2;
 
     r1.pointsFor += s1;
     r1.pointsAgainst += s2;

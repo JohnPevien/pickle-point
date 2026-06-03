@@ -121,10 +121,16 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   function handleRecordScore(matchId: Id<"tournamentMatches">) {
     const entry = scoreEntries[matchId];
     if (!entry) return;
+    // Reject blank inputs explicitly: Number("") is 0, which would otherwise
+    // be accepted as a valid score and could submit a 0-0 record.
+    if (entry.score1.trim() === "" || entry.score2.trim() === "") {
+      toast.error("Enter a score for both teams.");
+      return;
+    }
     const s1Raw = Number(entry.score1);
     const s2Raw = Number(entry.score2);
-    if (!Number.isFinite(s1Raw) || !Number.isFinite(s2Raw) || !Number.isInteger(s1Raw) || !Number.isInteger(s2Raw)) {
-      toast.error("Scores must be whole numbers.");
+    if (!Number.isFinite(s1Raw) || !Number.isFinite(s2Raw) || !Number.isInteger(s1Raw) || !Number.isInteger(s2Raw) || s1Raw < 0 || s2Raw < 0) {
+      toast.error("Scores must be non-negative whole numbers.");
       return;
     }
     const s1 = s1Raw;
