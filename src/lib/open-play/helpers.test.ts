@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildLiveSessionUrl,
   buildSessionLeaderboard,
   formatMatchingMode,
+  formatQueueLabel,
   formatSessionStatus,
+  getActivePlayerIds,
   parseScoreInput,
   parseSessionDateInput,
   playerName,
@@ -87,5 +90,53 @@ describe("open play helpers", () => {
         pointDiff: 2,
       },
     ]);
+  });
+
+  // --- New helper tests ---
+
+  test("buildLiveSessionUrl constructs the expected URL", () => {
+    expect(buildLiveSessionUrl("https://app.example.com", "test-club", "abc123")).toBe(
+      "https://app.example.com/test-club/open-play/abc123"
+    );
+  });
+
+  test("buildLiveSessionUrl strips trailing slash from origin", () => {
+    expect(buildLiveSessionUrl("https://app.example.com/", "my-club", "sess1")).toBe(
+      "https://app.example.com/my-club/open-play/sess1"
+    );
+  });
+
+  test("formatQueueLabel returns rank label for queued players", () => {
+    expect(formatQueueLabel({ status: "queued", checkedInAt: 0 }, 1)).toBe("#1 in queue");
+    expect(formatQueueLabel({ status: "queued", checkedInAt: 0 }, 3)).toBe("#3 in queue");
+    expect(formatQueueLabel({ status: "queued", checkedInAt: 0 })).toBe("In queue");
+  });
+
+  test("formatQueueLabel returns correct labels for all non-queued statuses", () => {
+    expect(formatQueueLabel({ status: "sitting_out", checkedInAt: 0 })).toBe("Sitting out");
+    expect(formatQueueLabel({ status: "playing", checkedInAt: 0 })).toBe("Playing");
+    expect(formatQueueLabel({ status: "left", checkedInAt: 0 })).toBe("Left");
+    expect(formatQueueLabel({ status: "checked_in", checkedInAt: 0 })).toBe("Checked in");
+  });
+
+  test("getActivePlayerIds collects all player IDs from active matches", () => {
+    const ids = getActivePlayerIds([
+      { team1: ["p1", "p2"], team2: ["p3", "p4"] },
+      { team1: ["p5", "p6"], team2: ["p7", "p8"] },
+    ]);
+
+    expect(ids.size).toBe(8);
+    expect(ids.has("p1")).toBe(true);
+    expect(ids.has("p8")).toBe(true);
+    expect(ids.has("p9")).toBe(false);
+  });
+
+  test("getActivePlayerIds returns empty set for no matches", () => {
+    expect(getActivePlayerIds([])).toEqual(new Set());
+  });
+
+  test("teamName is stable for all-null or mixed null details", () => {
+    expect(teamName([null, null])).toBe("TBD");
+    expect(teamName([{ firstName: "Ada", lastName: "Lovelace" }, null])).toBe("Ada Lovelace");
   });
 });

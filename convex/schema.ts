@@ -104,6 +104,7 @@ export default defineSchema({
   sessionQueueCounters: defineTable({
     sessionId: v.id("openPlaySessions"),
     nextPosition: v.number(),
+    frontNextPosition: v.optional(v.number()), // Decrements for front-of-queue returns (cancel/sub)
     updatedAt: v.number(),
   }).index("by_sessionId", ["sessionId"]),
 
@@ -118,7 +119,8 @@ export default defineSchema({
     status: v.union(
       v.literal("pending"),
       v.literal("in_progress"),
-      v.literal("completed")
+      v.literal("completed"),
+      v.literal("cancelled")
     ),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
