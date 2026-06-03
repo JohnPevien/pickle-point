@@ -68,7 +68,7 @@ Phase 3 progress:
 - [x] Live player view content: courts, up-next queue, sitting out, standings, and recent results.
 - [x] Copyable live player link from the Game Master control screen.
 - [x] Open Play UI helper coverage added; `pnpm test`, `pnpm lint`, and `pnpm build` passing after review fixes.
-- [ ] QR code generation for live player links.
+- [x] QR code generation for live player links.
   - [ ] Choose QR implementation approach that works in the current Next.js client/server setup.
   - [ ] Render QR code in the Game Master control screen for the selected session.
   - [ ] Add a print-friendly or display-friendly QR layout for courtside use.
@@ -84,7 +84,7 @@ Phase 3 progress:
   - [ ] Persist any needed rotation metadata if queue position is not enough.
   - [ ] Add visible wait/sit-out state to the Game Master control screen.
   - [ ] Add backend tests for the chosen rotation rule.
-- [ ] Tournament bracket live/admin UI screens.
+- [x] Tournament bracket live/admin UI screens.
   - [ ] Add tournament creation and status-management UI.
   - [ ] Add Game Master bracket control route for generated brackets.
   - [ ] Add tournament score-entry UI backed by `recordTournamentScore`.
@@ -135,15 +135,15 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [x] Smart matching (backend and Game Master generation UI complete).
     - [x] Live links or QR codes (copyable live link complete; QR code pending).
       - [x] Copyable Open Play live link.
-      - [ ] QR code for Open Play live link.
+      - [x] QR code for Open Play live link.
       - [ ] QR/live-link equivalent for tournaments.
     - [x] Session stats (backend and live leaderboard/recent results UI complete).
     - [x] Mini tournaments (backend complete, UI pending).
     - [x] Live bracket views (backend complete, UI pending).
     - [x] Game Master controls (Open Play control screen first slice complete; tournament/admin management controls pending).
       - [x] Open Play control screen.
-      - [ ] Manual match adjustment controls.
-      - [ ] Tournament bracket control screen.
+      - [x] Manual match adjustment controls.
+      - [x] Tournament bracket control screen.
       - [ ] Workspace/venue/player management screens.
   - [x] Confirm guests and walk-ins can join open plays and tournaments without player login accounts when the Game Master creates or selects player records for them.
   - [x] Keep the archived Codex prototype as reference material only, not approved implementation.
