@@ -178,3 +178,55 @@ function titleize(value: string) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
+
+/**
+ * Builds the public live session URL for a tenant/session.
+ * Pure function — does not depend on window or browser APIs.
+ */
+export function buildLiveSessionUrl(
+  origin: string,
+  tenantSlug: string,
+  sessionId: string
+): string {
+  const base = origin.replace(/\/$/, "");
+  return `${base}/${tenantSlug}/open-play/${sessionId}`;
+}
+
+const QUEUE_STATUS_LABELS: Record<string, string> = {
+  sitting_out: "Sitting out",
+  playing: "Playing",
+  left: "Left",
+  checked_in: "Checked in",
+};
+
+/**
+ * Returns a human-readable queue state label for a session player.
+ * The optional rank is the 1-based ordinal position among queued players.
+ */
+export function formatQueueLabel(
+  player: SessionPlayerLike,
+  rank?: number
+): string {
+  if (player.status === "queued") {
+    return rank != null ? `#${rank} in queue` : "In queue";
+  }
+  return QUEUE_STATUS_LABELS[player.status] ?? "Waiting…";
+}
+
+type ActiveMatchLike = {
+  team1: string[];
+  team2: string[];
+};
+
+/**
+ * Collects the set of player IDs currently in active (pending/in_progress) matches.
+ * Useful for validating substitute candidates on the UI side.
+ */
+export function getActivePlayerIds(matches: ActiveMatchLike[]): Set<string> {
+  const ids = new Set<string>();
+  for (const match of matches) {
+    for (const id of match.team1) ids.add(id);
+    for (const id of match.team2) ids.add(id);
+  }
+  return ids;
+}
