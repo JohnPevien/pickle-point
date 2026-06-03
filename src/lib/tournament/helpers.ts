@@ -83,6 +83,15 @@ export function formatTournamentDate(timestamp: number): string {
   });
 }
 
+export function buildPublicTournamentUrl(
+  origin: string,
+  tenantSlug: string,
+  tournamentId: string
+): string {
+  const base = origin.replace(/\/+$/, "");
+  return `${base}/${tenantSlug}/tournaments/${tournamentId}`;
+}
+
 export function parseScore(value: number | null | undefined): string {
   if (value === null || value === undefined) return "-";
   return String(value);

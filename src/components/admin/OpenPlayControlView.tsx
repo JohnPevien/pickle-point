@@ -116,10 +116,13 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   // number without re-counting inside the render.
   const queueRanked = useMemo(
     () => {
-      let rank = 0;
+      const queueRanks = new Map(
+        sortedSessionPlayers
+          .filter((player) => player.status === "queued")
+          .map((player, index) => [player._id, index + 1])
+      );
       return sortedSessionPlayers.map((player) => {
-        if (player.status === "queued") rank += 1;
-        return { player, rank: player.status === "queued" ? rank : undefined };
+        return { player, rank: player.status === "queued" ? queueRanks.get(player._id) : undefined };
       });
     },
     [sortedSessionPlayers]
@@ -324,7 +327,11 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
       {showQr && liveUrl && (
         <div className="border-b bg-muted/50 px-4 py-4">
           <div className="mx-auto flex max-w-7xl justify-start">
-            <SessionQrPanel url={liveUrl} />
+            <SessionQrPanel
+              url={liveUrl}
+              title="Open Play live link"
+              ariaLabel="Open Play live link QR code"
+            />
           </div>
         </div>
       )}

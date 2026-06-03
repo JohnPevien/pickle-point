@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useState, useTransition } from "react";
+import { type FormEvent, useState, useTransition } from "react";
 import { ChevronDown, ChevronUp, ArrowLeftRight, UserMinus, X } from "lucide-react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
@@ -37,14 +37,6 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
   const cancelMatch = useMutation(api.openPlaySessions.cancelMatch);
   const [isPending, startTransition] = useTransition();
 
-  // Court rename — keep the local input in sync if the match is renamed elsewhere
-  // (another admin, a Convex subscription update, etc.) so a stale Rename submit
-  // can't silently overwrite the live value.
-  const [courtName, setCourtName] = useState(match.courtName ?? "");
-  useEffect(() => {
-    setCourtName(match.courtName ?? "");
-  }, [match.courtName]);
-
   // Swap players
   const allMatchPlayers = [...match.team1Details, ...match.team2Details];
   // Radix Select's onValueChange is typed (value: string) => void, so we keep
@@ -76,6 +68,8 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
 
   function submitCourtRename(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const courtName = String(formData.get("courtName") ?? "");
     startTransition(async () => {
       const result = await updateMatchCourt({ matchId: match._id, courtName });
       if (result.success) {
@@ -166,10 +160,14 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
       {open && (
         <div className="mt-3 space-y-4">
           {/* Rename court */}
-          <form onSubmit={submitCourtRename} className="flex gap-2">
+          <form
+            key={`${match._id}-${match.courtName ?? ""}`}
+            onSubmit={submitCourtRename}
+            className="flex gap-2"
+          >
             <Input
-              value={courtName}
-              onChange={(e) => setCourtName(e.target.value)}
+              name="courtName"
+              defaultValue={match.courtName ?? ""}
               placeholder="Court name"
               aria-label="Rename court"
               className="h-8 text-sm"

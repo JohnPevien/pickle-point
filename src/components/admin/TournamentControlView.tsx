@@ -1,18 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
+import { Copy, ExternalLink, QrCode } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SessionQrPanel } from "@/components/open-play/SessionQrPanel";
 import {
   statusLabel,
   formatLabel,
   formatTournamentDate,
+  buildPublicTournamentUrl,
   parseScore,
   groupBracketByTierAndStage,
   computeRoundRobinStandings,
@@ -47,6 +51,7 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   const [isPending, startTransition] = useTransition();
   const [scoreEntries, setScoreEntries] = useState<Record<string, ScoreEntry>>({});
   const [activeTier, setActiveTier] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
 
   const view = useQuery(api.tournaments.getTournamentView, { tenantId, tournamentId });
   const updateStatus = useMutation(api.tournaments.updateTournamentStatus);
@@ -69,7 +74,10 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   const status = tournament.status as TournamentStatus;
   const format = tournament.format as TournamentFormat;
   const allowedTransitions = STATUS_TRANSITIONS[status] ?? [];
-  const publicUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/${tenant}/tournaments/${tournamentId}`;
+  const publicPath = `/${tenant}/tournaments/${tournamentId}`;
+  const publicUrl = typeof window === "undefined"
+    ? publicPath
+    : buildPublicTournamentUrl(window.location.origin, tenant, tournamentId);
   const isRoundRobin = format === "round_robin";
 
   const grouped = groupBracketByTierAndStage(
@@ -155,6 +163,10 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   }
 
   async function handleCopyLink() {
+    if (!navigator.clipboard) {
+      toast.error("Clipboard is unavailable.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(publicUrl);
       toast.success("Public link copied.");
@@ -235,11 +247,40 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
           </Button>
         )}
         {bracketRounds.length > 0 && (
-          <Button size="sm" variant="outline" onClick={handleCopyLink}>
-            Copy Public Link
-          </Button>
+          <>
+            <Button size="sm" variant="outline" onClick={handleCopyLink}>
+              <Copy />
+              Copy Public Link
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setShowQr((current) => !current)}
+              aria-expanded={showQr}
+            >
+              <QrCode />
+              {showQr ? "Hide QR" : "Show QR"}
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href={publicPath} target="_blank" rel="noopener noreferrer">
+                <ExternalLink />
+                Public View
+              </Link>
+            </Button>
+          </>
         )}
       </div>
+
+      {showQr && bracketRounds.length > 0 && (
+        <div className="flex justify-start">
+          <SessionQrPanel
+            url={publicUrl}
+            title="Tournament public bracket"
+            ariaLabel="Tournament public bracket QR code"
+          />
+        </div>
+      )}
 
       <RegisteredTeams teams={teams as Parameters<typeof RegisteredTeams>[0]["teams"]} />
 
