@@ -1,3 +1,5 @@
+import { buildTenantUrl } from "@/lib/url";
+
 export type TournamentStatus =
   | "draft"
   | "registration_open"
@@ -88,8 +90,7 @@ export function buildPublicTournamentUrl(
   tenantSlug: string,
   tournamentId: string
 ): string {
-  const base = origin.replace(/\/+$/, "");
-  return `${base}/${tenantSlug}/tournaments/${tournamentId}`;
+  return buildTenantUrl(origin, tenantSlug, "tournaments", tournamentId);
 }
 
 export function parseScore(value: number | null | undefined): string {

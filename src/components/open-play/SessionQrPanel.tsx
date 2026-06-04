@@ -16,19 +16,15 @@ const QRCodeSVG = dynamic(
 
 type SessionQrPanelProps = {
   url: string;
-  title?: string;
-  ariaLabel?: string;
+  title: string;
+  ariaLabel: string;
 };
 
 /**
  * Renders a QR code for a public live URL along with the URL text.
  * Intended for Game Master control screens and courtside display.
  */
-export function SessionQrPanel({
-  url,
-  title = "Live link",
-  ariaLabel = "Live link QR code",
-}: SessionQrPanelProps) {
+export function SessionQrPanel({ url, title, ariaLabel }: SessionQrPanelProps) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-lg border bg-card p-4 print:border-0 print:bg-white">
       <p className="text-sm font-medium text-foreground print:text-black">{title}</p>

@@ -1,3 +1,5 @@
+import { buildTenantUrl } from "@/lib/url";
+
 export const SKILL_TIERS = [
   "Beginner",
   "Novice",
@@ -188,8 +190,7 @@ export function buildLiveSessionUrl(
   tenantSlug: string,
   sessionId: string
 ): string {
-  const base = origin.replace(/\/$/, "");
-  return `${base}/${tenantSlug}/open-play/${sessionId}`;
+  return buildTenantUrl(origin, tenantSlug, "open-play", sessionId);
 }
 
 const QUEUE_STATUS_LABELS: Record<string, string> = {
