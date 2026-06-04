@@ -249,7 +249,7 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
         {bracketRounds.length > 0 && (
           <>
             <Button size="sm" variant="outline" onClick={handleCopyLink}>
-              <Copy />
+              <Copy className="mr-2 h-4 w-4" />
               Copy Public Link
             </Button>
             <Button
@@ -259,12 +259,12 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
               onClick={() => setShowQr((current) => !current)}
               aria-expanded={showQr}
             >
-              <QrCode />
+              <QrCode className="mr-2 h-4 w-4" />
               {showQr ? "Hide QR" : "Show QR"}
             </Button>
             <Button asChild size="sm" variant="outline">
               <Link href={publicPath} target="_blank" rel="noopener noreferrer">
-                <ExternalLink />
+                <ExternalLink className="mr-2 h-4 w-4" />
                 Public View
               </Link>
             </Button>

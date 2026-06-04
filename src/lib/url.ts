@@ -8,5 +8,6 @@ export function buildTenantUrl(
   ...pathSegments: string[]
 ): string {
   const base = origin.replace(/\/+$/, "");
-  return [base, tenantSlug, ...pathSegments].join("/");
+  const normalizeSegment = (segment: string) => segment.replace(/^\/+|\/+$/g, "");
+  return [base, normalizeSegment(tenantSlug), ...pathSegments.map(normalizeSegment)].join("/");
 }

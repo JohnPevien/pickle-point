@@ -69,7 +69,7 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
   function submitCourtRename(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const courtName = String(formData.get("courtName") ?? "");
+    const courtName = String(formData.get("courtName") ?? "").trim();
     startTransition(async () => {
       const result = await updateMatchCourt({ matchId: match._id, courtName });
       if (result.success) {
