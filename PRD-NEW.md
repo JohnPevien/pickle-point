@@ -69,10 +69,10 @@ Phase 3 progress:
 - [x] Copyable live player link from the Game Master control screen.
 - [x] Open Play UI helper coverage added; `pnpm test`, `pnpm lint`, and `pnpm build` passing after review fixes.
 - [x] QR code generation for live player links.
-  - [ ] Choose QR implementation approach that works in the current Next.js client/server setup.
-  - [ ] Render QR code in the Game Master control screen for the selected session.
-  - [ ] Add a print-friendly or display-friendly QR layout for courtside use.
-  - [ ] Add tests or smoke coverage for live-link URL generation.
+  - [x] Choose QR implementation approach that works in the current Next.js client/server setup.
+  - [x] Render QR code in the Game Master control screen for the selected session.
+  - [x] Add a print-friendly or display-friendly QR layout for courtside use.
+  - [x] Add tests or smoke coverage for live-link URL generation.
 - [ ] Manual adjustment controls for generated matches.
   - [ ] Define allowed manual edits: move player, swap partners, change court, cancel match, and regenerate only empty courts.
   - [ ] Add backend mutation(s) for editing pending/in-progress session matches with tenant/session validation.
@@ -136,7 +136,7 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [x] Live links or QR codes (copyable live link complete; QR code pending).
       - [x] Copyable Open Play live link.
       - [x] QR code for Open Play live link.
-      - [ ] QR/live-link equivalent for tournaments.
+      - [x] QR/live-link equivalent for tournaments.
     - [x] Session stats (backend and live leaderboard/recent results UI complete).
     - [x] Mini tournaments (backend complete, UI pending).
     - [x] Live bracket views (backend complete, UI pending).

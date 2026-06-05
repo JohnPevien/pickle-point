@@ -4,6 +4,7 @@ import {
   formatLabel,
   stageLabel,
   formatTournamentDate,
+  buildPublicTournamentUrl,
   parseScore,
   groupBracketByTierAndStage,
   computeRoundRobinStandings,
@@ -69,6 +70,20 @@ describe("formatTournamentDate", () => {
     const result = formatTournamentDate(ts);
     expect(result).toContain("2026");
     expect(result).toMatch(/Jun/i);
+  });
+});
+
+describe("buildPublicTournamentUrl", () => {
+  test("constructs the expected public tournament URL", () => {
+    expect(buildPublicTournamentUrl("https://app.example.com", "test-club", "t123")).toBe(
+      "https://app.example.com/test-club/tournaments/t123"
+    );
+  });
+
+  test("strips trailing slashes from origin", () => {
+    expect(buildPublicTournamentUrl("https://app.example.com///", "my-club", "t456")).toBe(
+      "https://app.example.com/my-club/tournaments/t456"
+    );
   });
 });
 

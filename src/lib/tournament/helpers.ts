@@ -1,3 +1,5 @@
+import { buildTenantUrl } from "@/lib/url";
+
 export type TournamentStatus =
   | "draft"
   | "registration_open"
@@ -81,6 +83,14 @@ export function formatTournamentDate(timestamp: number): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+export function buildPublicTournamentUrl(
+  origin: string,
+  tenantSlug: string,
+  tournamentId: string
+): string {
+  return buildTenantUrl(origin, tenantSlug, "tournaments", tournamentId);
 }
 
 export function parseScore(value: number | null | undefined): string {
