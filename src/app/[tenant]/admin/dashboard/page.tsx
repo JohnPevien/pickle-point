@@ -39,6 +39,9 @@ export default async function AdminDashboardPage({
           </h1>
           <div className="flex items-center gap-3">
             <Button asChild variant="outline" size="sm">
+              <Link href={`/${tenant}/admin/venues`}>Venues</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
               <Link href={`/${tenant}/admin/tournaments`}>Tournaments</Link>
             </Button>
             <Button asChild variant="outline" size="sm">
