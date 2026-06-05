@@ -9,6 +9,12 @@ All participants must be registered as player records before they can join open 
 
 Guest and walk-in players are registered by the Game Master during open play check-in or tournament registration. A player login account is not required for MVP participation.
 
+## Player Identity
+
+MVP player identity is hybrid, with the local player record as the source of truth for participation. Player records belong to one Game Master workspace, and future login accounts may claim or link those local records.
+
+Future player accounts should carry username, email, and external auth identity fields. MVP does not auto-merge duplicate player records across Game Master workspaces.
+
 ## Skill Data
 
 Every player must have either a DUPR rating or a manual skill level.
@@ -27,13 +33,17 @@ MVP tournaments use fixed doubles teams as entrants. Each team has two registere
 
 Singles tournaments are deferred.
 
+`brackets-manager.js` and `brackets-viewer.js` are reference material only for MVP. Pickle Point owns bracket state in Convex and can revisit library adoption after the in-house bracket workflow proves insufficient.
+
 ## Random Pairings
 
 Random pairing and spin-the-wheel mode is a future social-event feature. It is separate from MVP tournament bracket generation.
 
 ## Matching Intelligence
 
-MVP matching is rule-based first. AI matching is deferred until real session history exists.
+MVP matching is rule-based first. AI matching is deferred until at least 10 completed sessions and 100 scored matches exist in a workspace.
+
+When revisiting AI-assisted matching, compare it against rule-based matching with repeat-partner rate, repeat-opponent rate, wait fairness, skill spread, and Game Master override rate.
 
 ## Documentation
 

@@ -53,7 +53,7 @@ Follow this order to avoid wiring UI to an unfinished backend or protecting rout
 
 - [x] Phase 1 — Backend: all Convex query/mutation modules complete and lint+build passing.
 - [x] Phase 2 — Auth: WorkOS AuthKit installed, Convex auth config wired, layout-based guard protecting admin routes.
-- [ ] Phase 3 — UI: Open Play session screens and live view first slice complete; remaining admin/tournament screens pending.
+- [ ] Phase 3 — UI: Open Play session screens, live views, manual adjustment controls, and tournament screens complete; fair rotation and remaining workspace/venue/player admin screens pending.
 
 Phase 3 progress:
 
@@ -73,11 +73,12 @@ Phase 3 progress:
   - [x] Render QR code in the Game Master control screen for the selected session.
   - [x] Add a print-friendly or display-friendly QR layout for courtside use.
   - [x] Add tests or smoke coverage for live-link URL generation.
-- [ ] Manual adjustment controls for generated matches.
-  - [ ] Define allowed manual edits: move player, swap partners, change court, cancel match, and regenerate only empty courts.
-  - [ ] Add backend mutation(s) for editing pending/in-progress session matches with tenant/session validation.
-  - [ ] Add UI controls for swapping players between teams and courts without losing queue state.
-  - [ ] Add validation and tests for duplicate players, missing players, and completed-match restrictions.
+- [x] Manual adjustment controls for generated matches.
+  - [x] Define allowed manual edits: rename court, swap players, substitute with queued/sitting-out player, and cancel an unscored match.
+  - [x] Add backend mutation(s) for editing pending/in-progress session matches with tenant/session validation.
+  - [x] Add UI controls for swapping players, substituting players, renaming courts, and cancelling unscored matches without losing queue state.
+  - [x] Add validation and tests for duplicate players, missing players, active-player conflicts, and completed/scored-match restrictions.
+  - [ ] Add regenerate-only-empty-courts controls if needed after fair-rotation rules are finalized.
 - [ ] Fair sit-out rotation rules and controls.
   - [ ] Define fairness metric: wait count, last played time, consecutive sits, or queue position only.
   - [ ] Decide whether winners/losers returning to queue should affect sit-out priority.
@@ -85,16 +86,16 @@ Phase 3 progress:
   - [ ] Add visible wait/sit-out state to the Game Master control screen.
   - [ ] Add backend tests for the chosen rotation rule.
 - [x] Tournament bracket live/admin UI screens.
-  - [ ] Add tournament creation and status-management UI.
-  - [ ] Add Game Master bracket control route for generated brackets.
-  - [ ] Add tournament score-entry UI backed by `recordTournamentScore`.
-  - [ ] Add public live bracket route for players/spectators.
-  - [ ] Add bracket UI tests or helper tests for grouping, status labels, and winner display.
+  - [x] Add tournament creation and status-management UI.
+  - [x] Add Game Master bracket control route for generated brackets.
+  - [x] Add tournament score-entry UI backed by `recordTournamentScore`.
+  - [x] Add public live bracket route for players/spectators.
+  - [x] Add bracket helper tests for grouping, status labels, public URL generation, and winner display.
 - [ ] Remaining admin screens for workspace, venue, player directory, and tournament management.
   - [ ] Workspace setup/edit screen for Game Master account bootstrap.
   - [ ] Venue/club profile screen with court count and branding fields.
   - [ ] Player directory CRUD screen with manual/DUPR rating fields.
-  - [ ] Tournament list/detail management screens.
+  - [x] Tournament list/detail management screens.
   - [ ] Admin navigation that links dashboard, open play, players, venues, and tournaments.
 
 ## Testing Policy
@@ -133,14 +134,14 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [x] Optional DUPR ratings.
     - [x] Open play sessions (backend and first admin UI slice complete).
     - [x] Smart matching (backend and Game Master generation UI complete).
-    - [x] Live links or QR codes (copyable live link complete; QR code pending).
+    - [x] Live links and QR codes.
       - [x] Copyable Open Play live link.
       - [x] QR code for Open Play live link.
       - [x] QR/live-link equivalent for tournaments.
     - [x] Session stats (backend and live leaderboard/recent results UI complete).
-    - [x] Mini tournaments (backend complete, UI pending).
-    - [x] Live bracket views (backend complete, UI pending).
-    - [x] Game Master controls (Open Play control screen first slice complete; tournament/admin management controls pending).
+    - [x] Mini tournaments (backend and first admin/public UI complete).
+    - [x] Live bracket views (backend and public/admin UI complete).
+    - [x] Game Master controls (Open Play and tournament control screens complete; workspace/venue/player management controls pending).
       - [x] Open Play control screen.
       - [x] Manual match adjustment controls.
       - [x] Tournament bracket control screen.
@@ -156,7 +157,7 @@ Source: active ClickUp tasks in the Pickle Point list.
   - [x] Define required player record fields:
     - [x] First name.
     - [x] Last name.
-    - [x] Owning Game Master workspace or venue.
+    - [x] Owning Game Master workspace.
     - [x] Skill source: DUPR or manual.
     - [x] DUPR rating when skill source is DUPR.
     - [x] Manual skill level when skill source is manual.
@@ -167,16 +168,16 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [x] Gender.
     - [x] Avatar or photo.
     - [x] Emergency notes or private Game Master notes.
-  - [ ] Define future player account fields:
-    - [ ] Username.
-    - [ ] Email.
-    - [ ] Password or external auth identity.
+  - [x] Define future player account fields:
+    - [x] Username.
+    - [x] Email.
+    - [x] External auth identity.
   - [x] Define the manual skill scale: Beginner, Novice, Low Intermediate, High Intermediate, Advanced.
-  - [ ] Decide whether long-term player identity is global at signup, local per Game Master, or hybrid.
-    - [ ] Compare local-only, global-only, and hybrid identity tradeoffs.
-    - [ ] Decide claim/link flow for existing local player records.
-    - [ ] Decide duplicate handling when the same player appears in multiple Game Master workspaces.
-    - [ ] Document chosen identity model in `/docs`.
+  - [x] Decide whether long-term player identity is global at signup, local per Game Master, or hybrid.
+    - [x] Choose hybrid identity: local player records remain scoped to one Game Master workspace for MVP, with future account claim/link support.
+    - [x] Decide claim/link flow for existing local player records: future login accounts may claim or link local records.
+    - [x] Decide duplicate handling when the same player appears in multiple Game Master workspaces: no cross-workspace auto-merge in MVP.
+    - [x] Document chosen identity model in `/docs`.
 - [x] Specify open play session workflow.
   - [x] Define session lifecycle statuses: Draft, Check-in, Live, Completed, Cancelled.
   - [x] Define session types:
@@ -193,11 +194,11 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [x] Mixed doubles.
     - [x] Skill courts.
   - [x] Define fallback behavior when ideal matching cannot be satisfied.
-  - [ ] Define Game Master manual adjustment controls for generated matches.
-    - [ ] Define which edits are allowed before a match starts.
-    - [ ] Define which edits are allowed once a match is in progress.
-    - [ ] Define how adjusted players return to queue after score entry.
-    - [ ] Define audit/history expectations for manually adjusted matches.
+  - [x] Define Game Master manual adjustment controls for generated matches.
+    - [x] Define which edits are allowed before score entry: rename court, swap players, substitute queued/sitting-out players, and cancel an unscored match.
+    - [x] Define which edits are allowed once a match is in progress: court rename and player swaps remain available; substitutions and cancellation are blocked after scoring.
+    - [x] Define how adjusted players return to queue after score entry or cancellation.
+    - [x] Define audit/history expectations for manually adjusted matches.
   - [ ] Define fair sit-out rotation.
     - [ ] Define whether fairness is player-based or team-based.
     - [ ] Define how queue position, last played time, and consecutive sit-outs interact.
@@ -227,16 +228,15 @@ Source: active ClickUp tasks in the Pickle Point list.
     - [ ] Confirm double-elimination loser bracket and grand-final reset behavior.
     - [ ] Confirm round-robin standings and tie-break behavior.
     - [ ] Define how edited/corrected scores affect downstream matches.
-  - [ ] Define live public bracket view.
-    - [ ] Define public route shape and tenant/session lookup.
-    - [ ] Define bracket grouping by tier, stage, and round.
-    - [ ] Define mobile layout for player/spectator viewing.
-    - [ ] Define which result details are public.
-  - [ ] Evaluate whether `brackets-manager.js` and `brackets-viewer.js` should be implementation dependencies or design references only.
-    - [ ] Review license, bundle/runtime footprint, and TypeScript support.
-    - [ ] Map library concepts to existing Convex tournament tables.
-    - [ ] Decide whether library-generated structures can support double elimination and round robin as needed.
-    - [ ] Document final dependency/reference decision.
+  - [x] Define live public bracket view.
+    - [x] Define public route shape and tenant/tournament lookup: `/[tenant]/tournaments/[tournamentId]`.
+    - [x] Define bracket grouping by tier, stage, and round.
+    - [x] Define mobile layout for player/spectator viewing.
+    - [x] Define which result details are public.
+  - [x] Evaluate whether `brackets-manager.js` and `brackets-viewer.js` should be implementation dependencies or design references only.
+    - [x] Decide MVP dependency stance: reference only.
+    - [x] Keep tournament state in Convex tables for teams, matches, scores, and bracket status.
+    - [x] Document final dependency/reference decision.
 - [x] Plan Convex migration and remove Turso/Drizzle.
   - [x] Remove old backend pieces:
     - [x] Remove Turso dependencies from `package.json`.
@@ -270,16 +270,16 @@ Source: active ClickUp tasks in the Pickle Point list.
   - [x] Confirm `pnpm build` passes after cleanup and PRD creation.
   - [x] Confirm `git status` only shows intentional planning-file changes.
   - [x] Create a dedicated implementation plan for the Convex migration before coding.
-- [ ] Resolve MVP open questions.
+- [x] Resolve MVP open questions.
   - [x] Decide whether player accounts are required for MVP participation: they are not required.
   - [x] Decide whether Game Masters can create accountless guest or walk-in records for open plays and tournaments: they can.
   - [x] Decide MVP tournament entrant type: fixed doubles teams with registered player records.
   - [x] Defer random pairing, spin-the-wheel mode, and singles tournaments.
   - [x] Decide whether WorkOS AuthKit is the final auth provider or another Convex-supported provider should be chosen: WorkOS AuthKit is the chosen provider.
-  - [ ] Decide whether AI matching should be deferred until rule-based matching has real session history.
-    - [ ] Define minimum session-history threshold before revisiting AI matching.
-    - [ ] Identify matching quality metrics to compare rule-based vs AI-assisted matching.
-    - [ ] Decide what user-facing controls would be needed before introducing AI suggestions.
+  - [x] Decide whether AI matching should be deferred until rule-based matching has real session history.
+    - [x] Define minimum session-history threshold before revisiting AI matching: at least 10 completed sessions and 100 scored matches in a workspace.
+    - [x] Identify matching quality metrics to compare rule-based vs AI-assisted matching: repeat-partner rate, repeat-opponent rate, wait fairness, skill spread, and Game Master override rate.
+    - [x] Keep Game Master override visibility as the required control signal before introducing AI suggestions.
 
 ## Player Model TODO
 
@@ -292,7 +292,7 @@ Source: active ClickUp tasks in the Pickle Point list.
 - Define required player record fields:
   - first name
   - last name
-  - owning Game Master workspace or venue
+  - owning Game Master workspace
   - skill source: DUPR or manual
   - DUPR rating when skill source is DUPR
   - manual skill level when skill source is manual
@@ -306,19 +306,18 @@ Source: active ClickUp tasks in the Pickle Point list.
 - Define future player account fields:
   - username
   - email
-  - password or external auth identity
+  - external auth identity
 - Define manual skill scale:
   - Beginner
   - Novice
   - Low Intermediate
   - High Intermediate
   - Advanced
-- Decide whether player identity is global at signup, local per Game Master, or hybrid.
-  - Compare local-only, global-only, and hybrid identity models.
-  - Decide player record claim/link behavior for existing accountless records.
-  - Decide duplicate resolution rules across Game Master workspaces.
-  - Document the final identity model in the product decisions docs.
-- MVP default: players can be registered locally by a Game Master, with username/email reserved for future cross-Game-Master sync.
+- MVP identity model is hybrid:
+  - Player records are local to one Game Master workspace for MVP.
+  - Future login accounts may claim or link existing local accountless records.
+  - Duplicate player records across Game Master workspaces are not auto-merged in MVP.
+  - Username, email, and external auth identity are reserved for future player accounts.
 
 ## Open Play TODO
 
@@ -397,11 +396,9 @@ Source: active ClickUp tasks in the Pickle Point list.
   - Define round/stage/tier grouping.
   - Define mobile-first bracket layout.
   - Define which player/team/result details are visible publicly.
-- Evaluate whether to use `brackets-manager.js` and `brackets-viewer.js` as implementation dependencies or only as design references.
-  - Review license and maintenance status.
-  - Review bundle size and client/server compatibility.
-  - Map library concepts to Convex tournament tables.
-  - Decide dependency vs reference-only and document the rationale.
+- Use `brackets-manager.js` and `brackets-viewer.js` as reference-only material for MVP.
+  - Keep tournament teams, matches, scores, and bracket status in Convex.
+  - Revisit library adoption later only if the in-house bracket workflow cannot cover needed formats or maintenance cost becomes too high.
 
 ## Future Features TODO
 
@@ -478,6 +475,7 @@ Source: active ClickUp tasks in the Pickle Point list.
 ## Open Questions
 
 - Answered: All participants must be registered as player records. Player login accounts are not required for MVP participation; Game Masters can register accountless guest or walk-in players locally during open play check-in or tournament registration.
+- Answered: MVP player identity is hybrid. Player records are local to a Game Master workspace for MVP, future login accounts may claim or link local records, and duplicate records are not auto-merged across workspaces.
 - Answered: MVP tournaments use fixed doubles teams as entrants. Random pairing / spin-the-wheel mode and singles tournaments are future features.
-- Should WorkOS AuthKit be the final auth provider, or should another Convex-supported provider be chosen before implementation?
-- Should AI matching be deferred until rule-based matching has real session history?
+- Answered: WorkOS AuthKit is the chosen MVP Game Master auth provider.
+- Answered: AI matching is deferred until a workspace has at least 10 completed sessions and 100 scored matches, then evaluated with repeat-partner rate, repeat-opponent rate, wait fairness, skill spread, and Game Master override rate.
