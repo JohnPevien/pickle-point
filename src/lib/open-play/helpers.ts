@@ -219,6 +219,23 @@ type ActiveMatchLike = {
   team2: string[];
 };
 
+type MatchAdjustmentPlayerLike = {
+  _id?: string;
+} | null;
+
+type MatchAdjustmentMatchLike = {
+  team1Details: MatchAdjustmentPlayerLike[];
+  team2Details: MatchAdjustmentPlayerLike[];
+  score1?: number | null;
+  score2?: number | null;
+};
+
+type SubstituteCandidateLike = SessionPlayerLike & {
+  playerId: string;
+};
+
+type MatchTeam = "team1" | "team2";
+
 /**
  * Collects the set of player IDs currently in active (pending/in_progress) matches.
  * Useful for validating substitute candidates on the UI side.
@@ -230,4 +247,63 @@ export function getActivePlayerIds(matches: ActiveMatchLike[]): Set<string> {
     for (const id of match.team2) ids.add(id);
   }
   return ids;
+}
+
+function matchPlayerTeam(match: MatchAdjustmentMatchLike, playerId: string): MatchTeam | null {
+  if (match.team1Details.some((player) => player?._id === playerId)) return "team1";
+  if (match.team2Details.some((player) => player?._id === playerId)) return "team2";
+  return null;
+}
+
+export function arePlayersOnSameMatchTeam(
+  match: MatchAdjustmentMatchLike,
+  playerAId: string,
+  playerBId: string
+): boolean {
+  if (!playerAId || !playerBId || playerAId === playerBId) return false;
+
+  const playerATeam = matchPlayerTeam(match, playerAId);
+  const playerBTeam = matchPlayerTeam(match, playerBId);
+
+  return playerATeam !== null && playerATeam === playerBTeam;
+}
+
+export function canSwapMatchPlayers(
+  match: MatchAdjustmentMatchLike,
+  playerAId: string,
+  playerBId: string
+): boolean {
+  if (!playerAId || !playerBId || playerAId === playerBId) return false;
+
+  const playerATeam = matchPlayerTeam(match, playerAId);
+  const playerBTeam = matchPlayerTeam(match, playerBId);
+
+  return playerATeam !== null && playerBTeam !== null && playerATeam !== playerBTeam;
+}
+
+export function isMatchScored(match: MatchAdjustmentMatchLike): boolean {
+  return match.score1 != null || match.score2 != null;
+}
+
+export function getEligibleSubstitutes<T extends SubstituteCandidateLike>(
+  sessionPlayers: T[],
+  activePlayerIds: Set<string>
+): T[] {
+  return sessionPlayers.filter(
+    (player) =>
+      (player.status === "queued" || player.status === "sitting_out") &&
+      !activePlayerIds.has(player.playerId)
+  );
+}
+
+export function canSubstituteMatchPlayer(
+  match: MatchAdjustmentMatchLike,
+  outgoingPlayerId: string,
+  incomingPlayerId: string
+): boolean {
+  return !isMatchScored(match) && Boolean(outgoingPlayerId && incomingPlayerId);
+}
+
+export function canCancelMatchAdjustment(match: MatchAdjustmentMatchLike): boolean {
+  return !isMatchScored(match);
 }

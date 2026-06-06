@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
 import {
+  arePlayersOnSameMatchTeam,
   buildLiveSessionUrl,
   buildSessionLeaderboard,
+  canCancelMatchAdjustment,
+  canSubstituteMatchPlayer,
+  canSwapMatchPlayers,
   formatMatchingMode,
   formatQueueLabel,
   formatSessionStatus,
   getActivePlayerIds,
+  getEligibleSubstitutes,
+  isMatchScored,
   parseScoreInput,
   parseSessionDateInput,
   playerName,
@@ -43,9 +49,12 @@ describe("open play helpers", () => {
     expect(parseSessionDateInput("2026-06-01T19:30")).toEqual(expect.any(Number));
     expect(parseSessionDateInput("not-a-date")).toBeNull();
     expect(parseScoreInput("11")).toBe(11);
+    expect(parseScoreInput(" 0 ")).toBe(0);
     expect(parseScoreInput("-1")).toBeNull();
     expect(parseScoreInput("11.5")).toBeNull();
+    expect(parseScoreInput("Infinity")).toBeNull();
     expect(parseScoreInput("")).toBeNull();
+    expect(parseScoreInput("   ")).toBeNull();
   });
 
   test("builds a session leaderboard from completed matches", () => {
@@ -106,6 +115,12 @@ describe("open play helpers", () => {
     );
   });
 
+  test("buildLiveSessionUrl normalizes tenant and path slashes", () => {
+    expect(buildLiveSessionUrl("https://app.example.com///", "/my-club/", "/sess1/")).toBe(
+      "https://app.example.com/my-club/open-play/sess1"
+    );
+  });
+
   test("formatQueueLabel returns rank label for queued players", () => {
     expect(formatQueueLabel({ status: "queued", checkedInAt: 0 }, 1)).toBe("#1 in queue");
     expect(formatQueueLabel({ status: "queued", checkedInAt: 0 }, 3)).toBe("#3 in queue");
@@ -117,6 +132,7 @@ describe("open play helpers", () => {
     expect(formatQueueLabel({ status: "playing", checkedInAt: 0 })).toBe("Playing");
     expect(formatQueueLabel({ status: "left", checkedInAt: 0 })).toBe("Left");
     expect(formatQueueLabel({ status: "checked_in", checkedInAt: 0 })).toBe("Checked in");
+    expect(formatQueueLabel({ status: "warming_up", checkedInAt: 0 })).toBe("Waiting…");
   });
 
   test("getActivePlayerIds collects all player IDs from active matches", () => {
@@ -138,5 +154,55 @@ describe("open play helpers", () => {
   test("teamName is stable for all-null or mixed null details", () => {
     expect(teamName([null, null])).toBe("TBD");
     expect(teamName([{ firstName: "Ada", lastName: "Lovelace" }, null])).toBe("Ada Lovelace");
+  });
+
+  test("guards match swaps to different players on different teams", () => {
+    const match = {
+      team1Details: [{ _id: "p1" }, { _id: "p2" }],
+      team2Details: [{ _id: "p3" }, { _id: "p4" }],
+    };
+
+    expect(arePlayersOnSameMatchTeam(match, "p1", "p2")).toBe(true);
+    expect(arePlayersOnSameMatchTeam(match, "p1", "p3")).toBe(false);
+    expect(canSwapMatchPlayers(match, "p1", "p3")).toBe(true);
+    expect(canSwapMatchPlayers(match, "p1", "p1")).toBe(false);
+    expect(canSwapMatchPlayers(match, "p1", "p2")).toBe(false);
+    expect(canSwapMatchPlayers(match, "p1", "not-in-match")).toBe(false);
+  });
+
+  test("guards substitutes and cancellations once a match is scored", () => {
+    const unscoredMatch = {
+      team1Details: [{ _id: "p1" }],
+      team2Details: [{ _id: "p2" }],
+      score1: null,
+      score2: null,
+    };
+    const scoredMatch = {
+      ...unscoredMatch,
+      score1: 11,
+    };
+
+    expect(isMatchScored(unscoredMatch)).toBe(false);
+    expect(isMatchScored(scoredMatch)).toBe(true);
+    expect(canSubstituteMatchPlayer(unscoredMatch, "p1", "p5")).toBe(true);
+    expect(canSubstituteMatchPlayer(unscoredMatch, "", "p5")).toBe(false);
+    expect(canSubstituteMatchPlayer(scoredMatch, "p1", "p5")).toBe(false);
+    expect(canCancelMatchAdjustment(unscoredMatch)).toBe(true);
+    expect(canCancelMatchAdjustment(scoredMatch)).toBe(false);
+  });
+
+  test("filters eligible substitutes by queue status and active matches", () => {
+    const activePlayerIds = new Set(["p4"]);
+    const candidates = getEligibleSubstitutes(
+      [
+        { _id: "sp1", playerId: "p1", status: "queued", checkedInAt: 1 },
+        { _id: "sp2", playerId: "p2", status: "sitting_out", checkedInAt: 2 },
+        { _id: "sp3", playerId: "p3", status: "checked_in", checkedInAt: 3 },
+        { _id: "sp4", playerId: "p4", status: "queued", checkedInAt: 4 },
+      ],
+      activePlayerIds
+    );
+
+    expect(candidates.map((candidate) => candidate.playerId)).toEqual(["p1", "p2"]);
   });
 });

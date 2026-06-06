@@ -9,6 +9,7 @@ import {
   groupBracketByTierAndStage,
   computeRoundRobinStandings,
   matchEntrantLabel,
+  entrant2Label,
   isByeMatch,
   type MatchRow,
   type BracketRound,
@@ -85,6 +86,12 @@ describe("buildPublicTournamentUrl", () => {
       "https://app.example.com/my-club/tournaments/t456"
     );
   });
+
+  test("normalizes tenant and tournament path slashes", () => {
+    expect(buildPublicTournamentUrl("https://app.example.com///", "/my-club/", "/t456/")).toBe(
+      "https://app.example.com/my-club/tournaments/t456"
+    );
+  });
 });
 
 describe("parseScore", () => {
@@ -113,6 +120,11 @@ describe("matchEntrantLabel", () => {
 
   test("returns the name when provided", () => {
     expect(matchEntrantLabel("Team Alpha", false)).toBe("Team Alpha");
+  });
+
+  test("returns TBD for unresolved future entrants", () => {
+    expect(matchEntrantLabel("Winner of Match 1", false, true)).toBe("TBD");
+    expect(entrant2Label(makeMatch({ entrant2Id: null, entrant2Name: "Winner of Match 2" }))).toBe("TBD");
   });
 });
 
@@ -199,6 +211,42 @@ describe("groupBracketByTierAndStage", () => {
     const grouped = groupBracketByTierAndStage(rounds);
     const stages = grouped[0].stages.map((s) => s.stage);
     expect(stages).toEqual(["winners", "losers", "grand_final"]);
+  });
+
+  test("applies default tier and stage labels for legacy matches", () => {
+    const grouped = groupBracketByTierAndStage([
+      {
+        round: 1,
+        matches: [
+          makeMatch({
+            _id: "legacy",
+            skillTier: null,
+            bracketStage: null,
+          }),
+        ],
+      },
+    ]);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].tier).toBe("Novice");
+    expect(grouped[0].stages[0]).toMatchObject({
+      stage: "single_elimination",
+      stageLabel: "Bracket",
+    });
+  });
+
+  test("keeps unexpected tiers visible after known tiers", () => {
+    const grouped = groupBracketByTierAndStage([
+      {
+        round: 1,
+        matches: [
+          makeMatch({ _id: "known", skillTier: "Advanced" }),
+          makeMatch({ _id: "custom", skillTier: "Pro" as never }),
+        ],
+      },
+    ]);
+
+    expect(grouped.map((group) => group.tier)).toEqual(["Advanced", "Pro"]);
   });
 });
 
