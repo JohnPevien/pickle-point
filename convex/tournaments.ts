@@ -668,8 +668,9 @@ function getDependentMatches(
     );
   }
 
-  while (queue.length > 0) {
-    const next = queue.shift()!;
+  let head = 0;
+  while (head < queue.length) {
+    const next = queue[head++];
     if (visited.has(next._id)) {
       continue;
     }

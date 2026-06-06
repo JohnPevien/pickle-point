@@ -141,8 +141,7 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   }
 
   function handleSaveSeed(team: TeamRow) {
-    const rawSeed = seedEntries[team.id] ?? (team.seed == null ? "" : String(team.seed));
-    const trimmedSeed = rawSeed.trim();
+    const trimmedSeed = seedInputValue(seedEntries, team).trim();
     const seed = trimmedSeed === "" ? null : Number(trimmedSeed);
 
     if (seed !== null && (!Number.isInteger(seed) || seed <= 0)) {
@@ -389,26 +388,24 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
                         <p className="text-xs text-muted-foreground font-medium">
                           Round {round.round}
                         </p>
-                        {round.matches.map((match) => (
+                        {round.matches.map((match) => {
+                          const scoreFallback = {
+                            score1: parseScoreEntry(match.score1),
+                            score2: parseScoreEntry(match.score2),
+                          };
+                          return (
                           <MatchCard
                             key={match._id}
                             match={match as MatchRow}
-                            scoreEntry={
-                              scoreEntries[match._id] ?? {
-                                score1: parseScoreEntry(match.score1),
-                                score2: parseScoreEntry(match.score2),
-                              }
-                            }
+                            scoreEntry={scoreEntries[match._id] ?? scoreFallback}
                             onScoreChange={(field, value) =>
-                              handleScoreChange(match._id, field, value, {
-                                score1: parseScoreEntry(match.score1),
-                                score2: parseScoreEntry(match.score2),
-                              })
+                              handleScoreChange(match._id, field, value, scoreFallback)
                             }
                             onRecordScore={() => handleRecordScore(match as MatchRow)}
                             disabled={isPending}
                           />
-                        ))}
+                          );
+                        })}
                       </div>
                     ))}
                   </div>
@@ -510,7 +507,7 @@ function RegisteredTeams({
                         <Input
                           type="number"
                           min={1}
-                          value={seedEntries[team.id] ?? (team.seed == null ? "" : String(team.seed))}
+                          value={seedInputValue(seedEntries, team)}
                           onChange={(e) => onSeedChange(team.id, e.target.value)}
                           className="h-8 w-24 text-xs"
                           placeholder="Unseeded"
@@ -542,6 +539,10 @@ function RegisteredTeams({
       </div>
     </div>
   );
+}
+
+function seedInputValue(seedEntries: Record<string, string>, team: TeamRow): string {
+  return seedEntries[team.id] ?? (team.seed == null ? "" : String(team.seed));
 }
 
 function compareTeamsBySeed(a: TeamRow, b: TeamRow): number {
