@@ -1,9 +1,7 @@
 import { fetchQuery } from "convex/nextjs";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { api } from "../../../../../convex/_generated/api";
 import { WorkspaceSettingsForm } from "@/components/admin/WorkspaceSettingsForm";
-import { Button } from "@/components/ui/button";
 
 export default async function AdminWorkspacePage({
   params,
@@ -18,29 +16,14 @@ export default async function AdminWorkspacePage({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/${tenant}/admin/dashboard`}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              &larr; Dashboard
-            </Link>
-            <h1 className="text-xl font-bold text-[var(--tenant-primary)]">
-              Workspace Settings
-            </h1>
-          </div>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/${tenant}/admin/tournaments`}>Tournaments</Link>
-          </Button>
-        </div>
-      </header>
-
-      <main className="container mx-auto max-w-3xl px-4 py-8">
-        <WorkspaceSettingsForm tenant={tenantData} />
-      </main>
-    </div>
+    <main className="container mx-auto max-w-3xl space-y-6 px-4 py-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Workspace Settings</h1>
+        <p className="text-sm text-muted-foreground">
+          Update workspace name, contact email, logo, and theme colors.
+        </p>
+      </div>
+      <WorkspaceSettingsForm tenant={tenantData} />
+    </main>
   );
 }

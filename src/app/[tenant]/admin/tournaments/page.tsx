@@ -16,35 +16,17 @@ export default async function AdminTournamentsPage({
   if (!tenantData) notFound();
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/${tenant}/admin/dashboard`}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              ← Dashboard
-            </Link>
-            <h1 className="font-bold text-xl" style={{ color: "var(--tenant-primary)" }}>
-              Tournaments
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/${tenant}/admin/players`}>Players</Link>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/${tenant}/register`}>Register Team</Link>
-            </Button>
-          </div>
+    <main className="container mx-auto space-y-6 px-4 py-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Tournaments</h1>
+          <p className="text-sm text-muted-foreground">Create and manage bracket events.</p>
         </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8">
-        <TournamentListView tenantId={tenantData._id} tenant={tenant} />
-      </main>
-    </div>
+        <Button asChild size="sm" variant="outline">
+          <Link href={`/${tenant}/register`}>Register Team</Link>
+        </Button>
+      </div>
+      <TournamentListView tenantId={tenantData._id} tenant={tenant} />
+    </main>
   );
 }
-

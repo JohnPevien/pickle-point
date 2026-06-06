@@ -23,46 +23,23 @@ export default async function AdminTournamentDetailPage({
   if (!view) notFound();
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/${tenant}/admin/tournaments`}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              ← Tournaments
-            </Link>
-            <h1 className="font-bold text-xl truncate" style={{ color: "var(--tenant-primary)" }}>
-              {view.tournament.name}
-            </h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link
-              href={`/${tenant}/tournaments/${tournamentId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Public view ↗
-            </Link>
-            <div
-              className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-bold"
-              style={{ backgroundColor: "var(--tenant-primary)", color: "#fff" }}
-            >
-              {tenantData.name.charAt(0)}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8">
-        <TournamentControlView
-          tenantId={tenantData._id}
-          tournamentId={view.tournament._id}
-          tenant={tenant}
-        />
-      </main>
-    </div>
+    <main className="container mx-auto space-y-6 px-4 py-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="truncate text-2xl font-semibold tracking-tight">{view.tournament.name}</h1>
+        <Link
+          href={`/${tenant}/tournaments/${tournamentId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          Public view ↗
+        </Link>
+      </div>
+      <TournamentControlView
+        tenantId={tenantData._id}
+        tournamentId={view.tournament._id}
+        tenant={tenant}
+      />
+    </main>
   );
 }
