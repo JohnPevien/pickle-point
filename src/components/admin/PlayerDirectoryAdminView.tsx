@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useMemo, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Edit3, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
@@ -106,6 +106,7 @@ export function PlayerDirectoryAdminView({
   const updatePlayer = useMutation(api.players.updatePlayer);
   const deletePlayer = useMutation(api.players.deletePlayer);
   const [isPending, startTransition] = useTransition();
+  const submittingRef = useRef(false);
   const [filters, setFilters] = useState<PlayerDirectoryFilters>(EMPTY_FILTERS);
   const [editingPlayerId, setEditingPlayerId] = useState<Id<"players"> | null>(null);
   const [form, setForm] = useState<PlayerFormState>(EMPTY_FORM);
@@ -135,6 +136,8 @@ export function PlayerDirectoryAdminView({
 
   function submitPlayer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     const duprRating = form.duprRating.trim() === "" ? null : Number(form.duprRating);
     if (duprRating !== null && (!Number.isFinite(duprRating) || duprRating < 0)) {
       toast.error("Enter a valid DUPR rating.");
@@ -177,6 +180,7 @@ export function PlayerDirectoryAdminView({
       } else {
         toast.error(result.error);
       }
+      submittingRef.current = false;
     });
   }
 
