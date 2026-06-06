@@ -85,8 +85,8 @@ describe("Tournaments", () => {
   async function loadTournamentMatches(t: ReturnType<typeof convexTest>, tournamentId: any) {
     return await t.run(async (ctx) => {
       return await ctx.db
-        .query("tournamentMatches")
-        .withIndex("by_tournament", (q) => q.eq("tournamentId", tournamentId as any))
+        .query("tournamentMatches" as any)
+        .withIndex("by_tournament" as any, (q: any) => q.eq("tournamentId", tournamentId as any))
         .collect();
     });
   }
@@ -325,8 +325,12 @@ describe("Tournaments", () => {
       const pairNames = await t.run(async (ctx) => {
         return await Promise.all(
           firstRound.map(async (match) => {
-            const entrant1 = match.entrant1Id ? await ctx.db.get(match.entrant1Id) : null;
-            const entrant2 = match.entrant2Id ? await ctx.db.get(match.entrant2Id) : null;
+            const entrant1 = match.entrant1Id
+              ? await ctx.db.get(match.entrant1Id as Id<"tournamentEntrants">)
+              : null;
+            const entrant2 = match.entrant2Id
+              ? await ctx.db.get(match.entrant2Id as Id<"tournamentEntrants">)
+              : null;
             return [entrant1?.name, entrant2?.name];
           })
         );
