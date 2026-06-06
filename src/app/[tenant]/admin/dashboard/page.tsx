@@ -44,6 +44,9 @@ export default async function AdminDashboardPage({
             <Button asChild variant="outline" size="sm">
               <Link href={`/${tenant}/admin/open-play`}>Open Play</Link>
             </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/${tenant}/admin/workspace`}>Workspace</Link>
+            </Button>
             <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-primary-foreground font-bold" style={{ backgroundColor: "var(--tenant-primary)" }}>
               {tenantData.name.charAt(0)}
             </div>
