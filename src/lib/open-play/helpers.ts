@@ -236,6 +236,12 @@ type SubstituteCandidateLike = SessionPlayerLike & {
 
 type MatchTeam = "team1" | "team2";
 
+export const AVAILABLE_STATUSES = new Set(["queued", "sitting_out"]);
+
+export function isAvailablePlayer(player: SessionPlayerLike): boolean {
+  return AVAILABLE_STATUSES.has(player.status);
+}
+
 /**
  * Collects the set of player IDs currently in active (pending/in_progress) matches.
  * Useful for validating substitute candidates on the UI side.
@@ -290,9 +296,7 @@ export function getEligibleSubstitutes<T extends SubstituteCandidateLike>(
   activePlayerIds: Set<string>
 ): T[] {
   return sessionPlayers.filter(
-    (player) =>
-      (player.status === "queued" || player.status === "sitting_out") &&
-      !activePlayerIds.has(player.playerId)
+    (player) => isAvailablePlayer(player) && !activePlayerIds.has(player.playerId)
   );
 }
 
