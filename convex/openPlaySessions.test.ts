@@ -382,7 +382,46 @@ describe("Open Play Sessions", () => {
         sessionId: sessionId as any,
       });
       expect(players[0].status).toBe("sitting_out");
+      expect(players[0].queuePosition).toBe(1);
+      expect(players[0].sitOutCount).toBe(1);
+      expect(players[0].consecutiveSitOuts).toBe(1);
+      expect(players[0].lastSatOutAt).toEqual(expect.any(Number));
+    });
+
+    test("updatePlayerStatus can pause and resume a player", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const sessionId = await createSession(t, tenantId as string);
+      const playerId = await seedPlayer(t, tenantId as string);
+
+      await t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: sessionId as any,
+        playerId: playerId as any,
+      });
+      await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: sessionId as any,
+        playerId: playerId as any,
+        status: "paused",
+      });
+
+      let players = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+      expect(players[0].status).toBe("paused");
       expect(players[0].queuePosition).toBeUndefined();
+      expect(players[0].sitOutCount).toBe(0);
+
+      await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: sessionId as any,
+        playerId: playerId as any,
+        status: "queued",
+      });
+
+      players = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+      expect(players[0].status).toBe("queued");
+      expect(players[0].queuePosition).toEqual(expect.any(Number));
     });
   });
 
@@ -494,7 +533,16 @@ describe("Open Play Sessions", () => {
         { sessionId: sessionId as any }
       );
       expect(sessionPlayers.filter((sp) => sp.status === "playing")).toHaveLength(16);
-      expect(sessionPlayers.filter((sp) => sp.status === "queued")).toHaveLength(4);
+      expect(sessionPlayers.filter((sp) => sp.status === "sitting_out")).toHaveLength(4);
+      expect(sessionPlayers.filter((sp) => sp.status === "sitting_out")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sitOutCount: 1,
+            consecutiveSitOuts: 1,
+            lastSatOutAt: expect.any(Number),
+          }),
+        ])
+      );
     });
 
     test("generateMatches sets player status to 'playing'", async () => {
@@ -512,6 +560,109 @@ describe("Open Play Sessions", () => {
 
       const playingPlayers = sessionPlayers.filter((sp) => sp.status === "playing");
       expect(playingPlayers).toHaveLength(4);
+      expect(playingPlayers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            matchesPlayed: 1,
+            consecutiveSitOuts: 0,
+            lastPlayedAt: expect.any(Number),
+          }),
+        ])
+      );
+    });
+
+    test("generateMatches prioritizes consecutive sit-outs, sit-out count, last played, then queue position", async () => {
+      const t = convexTest(schema, modules);
+      const { tenantId, sessionId, players } = await setupSessionWithPlayers(t, 8);
+
+      const venueId = await t.run(async (ctx) => {
+        const id = await ctx.db.insert("venues", {
+          tenantId: tenantId as any,
+          name: "One Court Club",
+          courtCount: 1,
+          createdAt: Date.now(),
+        });
+        await ctx.db.patch(sessionId as any, { venueId: id });
+        return id;
+      });
+      expect(venueId).toBeDefined();
+
+      await t.run(async (ctx) => {
+        const metadata = [
+          { consecutiveSitOuts: 0, sitOutCount: 0, lastPlayedAt: 100 },
+          { consecutiveSitOuts: 2, sitOutCount: 2, lastPlayedAt: 500 },
+          { consecutiveSitOuts: 1, sitOutCount: 5, lastPlayedAt: 400 },
+          { consecutiveSitOuts: 1, sitOutCount: 4, lastPlayedAt: 50 },
+          { consecutiveSitOuts: 0, sitOutCount: 10, lastPlayedAt: 300 },
+          { consecutiveSitOuts: 0, sitOutCount: 0 },
+          { consecutiveSitOuts: 0, sitOutCount: 0, lastPlayedAt: 10 },
+          { consecutiveSitOuts: 0, sitOutCount: 0, lastPlayedAt: 20 },
+        ];
+
+        for (let index = 0; index < players.length; index++) {
+          const sp = await ctx.db
+            .query("sessionPlayers")
+            .withIndex("by_sessionId_and_playerId", (q) =>
+              q.eq("sessionId", sessionId as any).eq("playerId", players[index] as any)
+            )
+            .first();
+          if (!sp) throw new Error("Missing session player");
+          await ctx.db.patch(sp._id, metadata[index]);
+        }
+      });
+
+      const result = await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+      expect(result.success).toBe(true);
+
+      const [match] = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      const selectedPlayerIds = new Set([...match.team1, ...match.team2].map(String));
+      expect(selectedPlayerIds).toEqual(
+        new Set([players[1], players[2], players[3], players[4]].map(String))
+      );
+    });
+
+    test("generateMatches excludes paused players", async () => {
+      const t = convexTest(schema, modules);
+      const { tenantId, sessionId, players } = await setupSessionWithPlayers(t, 5);
+
+      await t.run(async (ctx) => {
+        const venueId = await ctx.db.insert("venues", {
+          tenantId: tenantId as any,
+          name: "One Court Club",
+          courtCount: 1,
+          createdAt: Date.now(),
+        });
+        await ctx.db.patch(sessionId as any, { venueId });
+      });
+      await t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: sessionId as any,
+        playerId: players[1] as any,
+        status: "paused",
+      });
+
+      const result = await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+      expect(result.success).toBe(true);
+
+      const [match] = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      const selectedPlayerIds = new Set([...match.team1, ...match.team2].map(String));
+      expect(selectedPlayerIds.has(String(players[1]))).toBe(false);
+
+      const sessionPlayers = await t.query(api.openPlaySessions.getSessionPlayers, {
+        sessionId: sessionId as any,
+      });
+      const paused = sessionPlayers.find((sp) => sp.playerId === players[1]);
+      expect(paused).toMatchObject({
+        status: "paused",
+        sitOutCount: 0,
+      });
     });
 
     test("recordMatchScore completes match and returns players to queue", async () => {

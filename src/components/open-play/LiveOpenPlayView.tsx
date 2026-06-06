@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import {
   buildSessionLeaderboard,
   formatMatchingMode,
+  formatQueueLabel,
+  formatRotationStats,
   formatSessionStatus,
   playerName,
   sortSessionPlayers,
@@ -33,6 +35,8 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
   );
   const queuedPlayers = sortedSessionPlayers.filter((player) => player.status === "queued");
   const sittingOutPlayers = sortedSessionPlayers.filter((player) => player.status === "sitting_out");
+  const pausedPlayers = sortedSessionPlayers.filter((player) => player.status === "paused");
+  const availableCount = queuedPlayers.length + sittingOutPlayers.length;
   const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => match.status !== "completed");
   const completedMatches = (matchHistory ?? []) as LiveMatch[];
   const leaderboard = buildSessionLeaderboard(completedMatches);
@@ -50,7 +54,7 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <Signal label="Courts" value={String(activeMatches.length)} icon={<Radio />} />
-            <Signal label="Queue" value={String(queuedPlayers.length)} icon={<Users />} />
+            <Signal label="Available" value={String(availableCount)} icon={<Users />} />
             <Signal label="Results" value={String(completedMatches.length)} icon={<Medal />} />
           </div>
         </div>
@@ -156,6 +160,21 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
 
           <Card>
             <CardHeader>
+              <CardTitle>Paused</CardTitle>
+              <CardDescription>{pausedPlayers.length} manually held out</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {pausedPlayers.map((player) => (
+                <PlayerRow key={player._id} player={player} />
+              ))}
+              {pausedPlayers.length === 0 ? (
+                <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No paused players.</div>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Recent Results</CardTitle>
               <CardDescription>{completedMatches.length} matches</CardDescription>
             </CardHeader>
@@ -222,7 +241,12 @@ function PlayerRow({ rank, player }: { rank?: number; player: SessionPlayerRow }
       </div>
       <div className="min-w-0">
         <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
-        <p className="truncate text-xs text-muted-foreground">{player.playerDetails?.manualSkillLevel ?? "Unrated"}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {formatQueueLabel(player, rank)}
+        </p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {player.playerDetails?.manualSkillLevel ?? "Unrated"} / {formatRotationStats(player)}
+        </p>
       </div>
       <Activity className="size-4 text-[var(--tenant-primary)]" />
     </div>

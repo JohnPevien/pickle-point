@@ -41,6 +41,7 @@ import {
   formatMatchingMode,
   formatSessionStatus,
   formatQueueLabel,
+  formatRotationStats,
   parseScoreInput,
   parseSessionDateInput,
   playerName,
@@ -103,7 +104,13 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
     () => sortSessionPlayers((sessionPlayers ?? []) as SessionPlayerRow[]),
     [sessionPlayers],
   );
-  const queuedCount = sortedSessionPlayers.filter((player) => player.status === "queued").length;
+  const queuedPlayers = sortedSessionPlayers.filter((player) => player.status === "queued");
+  const sittingOutPlayers = sortedSessionPlayers.filter((player) => player.status === "sitting_out");
+  const pausedPlayers = sortedSessionPlayers.filter((player) => player.status === "paused");
+  const otherSessionPlayers = sortedSessionPlayers.filter(
+    (player) => !["queued", "sitting_out", "paused"].includes(player.status)
+  );
+  const availableCount = queuedPlayers.length + sittingOutPlayers.length;
   const playingCount = sortedSessionPlayers.filter((player) => player.status === "playing").length;
   const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => ACTIVE_STATUSES.has(match.status));
   // matchHistory includes cancelled matches for the Recent Results card,
@@ -114,19 +121,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   // Assign a 1-based rank to each queued player in display order so the row
   // label (#1, #2, …) and the formatQueueLabel subtitle can share a single
   // number without re-counting inside the render.
-  const queueRanked = useMemo(
-    () => {
-      const queueRanks = new Map(
-        sortedSessionPlayers
-          .filter((player) => player.status === "queued")
-          .map((player, index) => [player._id, index + 1])
-      );
-      return sortedSessionPlayers.map((player) => {
-        return { player, rank: player.status === "queued" ? queueRanks.get(player._id) : undefined };
-      });
-    },
-    [sortedSessionPlayers]
-  );
+  const queueRanked = queuedPlayers.map((player, index) => ({ player, rank: index + 1 }));
   // The QR panel is dynamically imported with ssr:false, so the absolute URL is
   // only consumed on the client. On the server, fall back to the path-only form
   // to keep the component serialisable and avoid hydration mismatches.
@@ -270,7 +265,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
 
   function submitPlayerStatusChange(
     playerId: Id<"players">,
-    status: "sitting_out" | "queued"
+    status: "paused" | "queued"
   ) {
     if (!currentSessionId) return;
     startTransition(async () => {
@@ -281,6 +276,56 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
       });
       if (!result.success) toast.error(result.error);
     });
+  }
+
+  function renderSessionPlayerRow(player: SessionPlayerRow, rank?: number) {
+    return (
+      <div
+        key={player._id}
+        className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm"
+      >
+        <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+          {rank ?? "—"}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {formatQueueLabel(player, rank)}
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {formatRotationStats(player)}
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {(player.status === "queued" || player.status === "sitting_out") && (
+            <button
+              type="button"
+              title="Pause player"
+              aria-label={`Pause ${playerName(player.playerDetails)}`}
+              disabled={isPending}
+              onClick={() => submitPlayerStatusChange(player.playerId, "paused")}
+              className="rounded p-1 text-muted-foreground hover:text-foreground"
+              id={`pause-player-btn-${player._id}`}
+            >
+              <UserMinus className="size-4" />
+            </button>
+          )}
+          {player.status === "paused" && (
+            <button
+              type="button"
+              title="Return to queue"
+              aria-label={`Return ${playerName(player.playerDetails)} to queue`}
+              disabled={isPending}
+              onClick={() => submitPlayerStatusChange(player.playerId, "queued")}
+              className="rounded p-1 text-muted-foreground hover:text-foreground"
+              id={`return-queue-btn-${player._id}`}
+            >
+              <UserX className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -411,9 +456,11 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
         </aside>
 
         <section className="space-y-6">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Metric icon={<Radio />} label="Status" value={session ? formatSessionStatus(session.status) : "Loading"} />
-            <Metric icon={<Clock3 />} label="Queued" value={String(queuedCount)} />
+            <Metric icon={<Clock3 />} label="Available" value={String(availableCount)} />
+            <Metric icon={<UserMinus />} label="Sitting Out" value={String(sittingOutPlayers.length)} />
+            <Metric icon={<UserX />} label="Paused" value={String(pausedPlayers.length)} />
             <Metric icon={<Activity />} label="Playing" value={String(playingCount)} />
             <Metric icon={<CheckCircle2 />} label="Results" value={String(completedCount)} />
           </div>
@@ -470,7 +517,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                 <CardContent className="space-y-3">
                   <Button
                     type="button"
-                    disabled={!currentSessionId || session?.status !== "live" || queuedCount < 4 || isPending}
+                    disabled={!currentSessionId || session?.status !== "live" || availableCount < 4 || isPending}
                     onClick={submitGenerateMatches}
                     className="bg-[var(--tenant-primary)]"
                   >
@@ -605,54 +652,24 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Queue</CardTitle>
-                  <CardDescription>{sortedSessionPlayers.length} checked in</CardDescription>
+                  <CardTitle>Players</CardTitle>
+                  <CardDescription>
+                    {sortedSessionPlayers.length} checked in / {availableCount} available
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  {queueRanked.map(({ player, rank }) => (
-                    <div
-                      key={player._id}
-                      className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm"
-                    >
-                      <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
-                        {rank ?? "—"}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">{playerName(player.playerDetails)}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {formatQueueLabel(player, rank)}
-                        </p>
-                      </div>
-                      <div className="flex gap-1">
-                        {player.status === "queued" && (
-                          <button
-                            type="button"
-                            title="Mark sitting out"
-                            aria-label={`Mark ${playerName(player.playerDetails)} as sitting out`}
-                            disabled={isPending}
-                            onClick={() => submitPlayerStatusChange(player.playerId, "sitting_out")}
-                            className="rounded p-1 text-muted-foreground hover:text-foreground"
-                            id={`sit-out-btn-${player._id}`}
-                          >
-                            <UserMinus className="size-4" />
-                          </button>
-                        )}
-                        {player.status === "sitting_out" && (
-                          <button
-                            type="button"
-                            title="Return to queue"
-                            aria-label={`Return ${playerName(player.playerDetails)} to queue`}
-                            disabled={isPending}
-                            onClick={() => submitPlayerStatusChange(player.playerId, "queued")}
-                            className="rounded p-1 text-muted-foreground hover:text-foreground"
-                            id={`return-queue-btn-${player._id}`}
-                          >
-                            <UserX className="size-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                <CardContent className="space-y-4">
+                  <PlayerStatusGroup title="Queued" count={queuedPlayers.length} emptyMessage="No queued players.">
+                    {queueRanked.map(({ player, rank }) => renderSessionPlayerRow(player, rank))}
+                  </PlayerStatusGroup>
+                  <PlayerStatusGroup title="Sitting out" count={sittingOutPlayers.length} emptyMessage="No sit-outs.">
+                    {sittingOutPlayers.map((player) => renderSessionPlayerRow(player))}
+                  </PlayerStatusGroup>
+                  <PlayerStatusGroup title="Paused" count={pausedPlayers.length} emptyMessage="No paused players.">
+                    {pausedPlayers.map((player) => renderSessionPlayerRow(player))}
+                  </PlayerStatusGroup>
+                  <PlayerStatusGroup title="Playing / left" count={otherSessionPlayers.length} emptyMessage="No other players.">
+                    {otherSessionPlayers.map((player) => renderSessionPlayerRow(player))}
+                  </PlayerStatusGroup>
                   {sortedSessionPlayers.length === 0 ? (
                     <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
                       No players checked in.
@@ -681,6 +698,32 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function PlayerStatusGroup({
+  title,
+  count,
+  emptyMessage,
+  children,
+}: {
+  title: string;
+  count: number;
+  emptyMessage: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
+        <span className="text-xs text-muted-foreground">{count}</span>
+      </div>
+      {count > 0 ? (
+        <div className="space-y-2">{children}</div>
+      ) : (
+        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{emptyMessage}</div>
+      )}
+    </section>
   );
 }
 
