@@ -25,6 +25,9 @@ function validCourtCount(value: number) {
 }
 
 function clampInt(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
   return Math.min(Math.max(Math.trunc(value), min), max);
 }
 

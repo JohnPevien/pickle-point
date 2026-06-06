@@ -121,7 +121,7 @@ export function VenueAdminView({ tenantId }: VenueAdminViewProps) {
         venueId,
         name: editForm.name,
         courtCount,
-        address: editForm.address,
+        address: editForm.address.trim() || undefined,
       });
 
       if (result.success) {
