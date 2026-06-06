@@ -2,12 +2,11 @@ export type AdminNavItem = {
   key: string;
   label: string;
   segment: string;
-  exact?: boolean;
   matchSubpaths?: boolean;
 };
 
 export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
-  { key: "dashboard", label: "Dashboard", segment: "dashboard", exact: true },
+  { key: "dashboard", label: "Dashboard", segment: "dashboard" },
   { key: "open-play", label: "Open Play", segment: "open-play" },
   { key: "tournaments", label: "Tournaments", segment: "tournaments", matchSubpaths: true },
   { key: "players", label: "Players", segment: "players" },
@@ -25,10 +24,6 @@ export function isAdminNavItemActive(
   item: AdminNavItem,
 ) {
   const href = getAdminNavHref(tenantSlug, item.segment);
-
-  if (item.exact) {
-    return pathname === href;
-  }
 
   if (item.matchSubpaths) {
     return pathname === href || pathname.startsWith(`${href}/`);
