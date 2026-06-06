@@ -96,6 +96,7 @@ export default defineSchema({
     checkedInAt: v.number(),
   })
     .index("by_session", ["sessionId"])
+    .index("by_playerId", ["playerId"])
     .index("by_sessionId_and_playerId", ["sessionId", "playerId"])
     .index("by_sessionId_and_status", ["sessionId", "status"])
     .index("by_sessionId_and_status_and_queuePosition", ["sessionId", "status", "queuePosition"]),
@@ -183,6 +184,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_tournament", ["tournamentId"])
+    .index("by_player1Id", ["player1Id"])
+    .index("by_player2Id", ["player2Id"])
     .index("by_tournamentId_and_player1Id", ["tournamentId", "player1Id"])
     .index("by_tournamentId_and_player2Id", ["tournamentId", "player2Id"])
     .index("by_tournamentId_and_player1Id_and_player2Id", ["tournamentId", "player1Id", "player2Id"]),

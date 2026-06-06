@@ -32,6 +32,9 @@ export default async function AdminTournamentsPage({
           </div>
           <div className="flex items-center gap-2">
             <Button asChild size="sm" variant="outline">
+              <Link href={`/${tenant}/admin/players`}>Players</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
               <Link href={`/${tenant}/register`}>Register Team</Link>
             </Button>
           </div>

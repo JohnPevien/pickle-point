@@ -295,6 +295,9 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
             <Button asChild variant="outline" size="sm">
               <Link href={`/${tenantSlug}/admin/dashboard`}>Tournament dashboard</Link>
             </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/${tenantSlug}/admin/players`}>Players</Link>
+            </Button>
             {livePath ? (
               <>
                 <Button type="button" variant="outline" size="sm" onClick={copyLiveLink}>
