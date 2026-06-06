@@ -24,6 +24,8 @@ const INITIAL_ROTATION_METADATA = {
   matchesPlayed: 0,
   sitOutCount: 0,
   consecutiveSitOuts: 0,
+  lastPlayedAt: undefined,
+  lastSatOutAt: undefined,
 } as const;
 
 type SessionPlayerDoc = Doc<"sessionPlayers">;
@@ -362,8 +364,6 @@ export const checkInPlayer = mutation({
         queuePosition,
         checkedInAt: Date.now(),
         ...INITIAL_ROTATION_METADATA,
-        lastPlayedAt: undefined,
-        lastSatOutAt: undefined,
       });
     } else {
       await ctx.db.insert("sessionPlayers", {
@@ -466,8 +466,6 @@ export const registerAndCheckInGuest = mutation({
         queuePosition,
         checkedInAt: Date.now(),
         ...INITIAL_ROTATION_METADATA,
-        lastPlayedAt: undefined,
-        lastSatOutAt: undefined,
       });
     } else {
       await ctx.db.insert("sessionPlayers", {

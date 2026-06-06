@@ -12,6 +12,7 @@ import {
   formatQueueLabel,
   formatRotationStats,
   formatSessionStatus,
+  isAvailablePlayer,
   playerName,
   sortSessionPlayers,
   teamName,
@@ -33,10 +34,19 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
     () => sortSessionPlayers((sessionPlayers ?? []) as SessionPlayerRow[]),
     [sessionPlayers],
   );
-  const queuedPlayers = sortedSessionPlayers.filter((player) => player.status === "queued");
-  const sittingOutPlayers = sortedSessionPlayers.filter((player) => player.status === "sitting_out");
-  const pausedPlayers = sortedSessionPlayers.filter((player) => player.status === "paused");
-  const availableCount = queuedPlayers.length + sittingOutPlayers.length;
+  const { queuedPlayers, sittingOutPlayers, pausedPlayers, availableCount } = useMemo(() => {
+    const queuedPlayers: SessionPlayerRow[] = [];
+    const sittingOutPlayers: SessionPlayerRow[] = [];
+    const pausedPlayers: SessionPlayerRow[] = [];
+    let availableCount = 0;
+    for (const player of sortedSessionPlayers) {
+      if (player.status === "queued") queuedPlayers.push(player);
+      else if (player.status === "sitting_out") sittingOutPlayers.push(player);
+      else if (player.status === "paused") pausedPlayers.push(player);
+      if (isAvailablePlayer(player)) availableCount += 1;
+    }
+    return { queuedPlayers, sittingOutPlayers, pausedPlayers, availableCount };
+  }, [sortedSessionPlayers]);
   const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => match.status !== "completed");
   const completedMatches = (matchHistory ?? []) as LiveMatch[];
   const leaderboard = buildSessionLeaderboard(completedMatches);

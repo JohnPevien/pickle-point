@@ -283,3 +283,9 @@ export function getActivePlayerIds(matches: ActiveMatchLike[]): Set<string> {
   }
   return ids;
 }
+
+export const AVAILABLE_STATUSES = new Set(["queued", "sitting_out"]);
+
+export function isAvailablePlayer(player: SessionPlayerLike): boolean {
+  return AVAILABLE_STATUSES.has(player.status);
+}

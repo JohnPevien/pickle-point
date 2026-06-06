@@ -42,6 +42,7 @@ import {
   formatSessionStatus,
   formatQueueLabel,
   formatRotationStats,
+  isAvailablePlayer,
   parseScoreInput,
   parseSessionDateInput,
   playerName,
@@ -104,14 +105,25 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
     () => sortSessionPlayers((sessionPlayers ?? []) as SessionPlayerRow[]),
     [sessionPlayers],
   );
-  const queuedPlayers = sortedSessionPlayers.filter((player) => player.status === "queued");
-  const sittingOutPlayers = sortedSessionPlayers.filter((player) => player.status === "sitting_out");
-  const pausedPlayers = sortedSessionPlayers.filter((player) => player.status === "paused");
-  const otherSessionPlayers = sortedSessionPlayers.filter(
-    (player) => !["queued", "sitting_out", "paused"].includes(player.status)
-  );
-  const availableCount = queuedPlayers.length + sittingOutPlayers.length;
-  const playingCount = sortedSessionPlayers.filter((player) => player.status === "playing").length;
+  const { queuedPlayers, sittingOutPlayers, pausedPlayers, otherSessionPlayers, playingCount } =
+    useMemo(() => {
+      const queuedPlayers: SessionPlayerRow[] = [];
+      const sittingOutPlayers: SessionPlayerRow[] = [];
+      const pausedPlayers: SessionPlayerRow[] = [];
+      const otherSessionPlayers: SessionPlayerRow[] = [];
+      let playingCount = 0;
+      for (const player of sortedSessionPlayers) {
+        if (player.status === "queued") queuedPlayers.push(player);
+        else if (player.status === "sitting_out") sittingOutPlayers.push(player);
+        else if (player.status === "paused") pausedPlayers.push(player);
+        else if (player.status === "playing") {
+          otherSessionPlayers.push(player);
+          playingCount += 1;
+        } else otherSessionPlayers.push(player);
+      }
+      return { queuedPlayers, sittingOutPlayers, pausedPlayers, otherSessionPlayers, playingCount };
+    }, [sortedSessionPlayers]);
+  const availableCount = sortedSessionPlayers.filter(isAvailablePlayer).length;
   const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => ACTIVE_STATUSES.has(match.status));
   // matchHistory includes cancelled matches for the Recent Results card,
   // but the "Results" metric and "X completed matches" description should
@@ -121,7 +133,10 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   // Assign a 1-based rank to each queued player in display order so the row
   // label (#1, #2, …) and the formatQueueLabel subtitle can share a single
   // number without re-counting inside the render.
-  const queueRanked = queuedPlayers.map((player, index) => ({ player, rank: index + 1 }));
+  const queueRanked = useMemo(
+    () => queuedPlayers.map((player, index) => ({ player, rank: index + 1 })),
+    [queuedPlayers],
+  );
   // The QR panel is dynamically imported with ssr:false, so the absolute URL is
   // only consumed on the client. On the server, fall back to the path-only form
   // to keep the component serialisable and avoid hydration mismatches.
