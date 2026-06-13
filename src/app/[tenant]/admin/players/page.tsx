@@ -16,10 +16,6 @@ export default async function AdminPlayersPage({
   }
 
   return (
-    <PlayerDirectoryAdminView
-      tenantId={tenantData._id}
-      tenantName={tenantData.name}
-      tenantSlug={tenant}
-    />
+    <PlayerDirectoryAdminView tenantId={tenantData._id} tenantName={tenantData.name} />
   );
 }

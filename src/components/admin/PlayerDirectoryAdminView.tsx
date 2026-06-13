@@ -1,7 +1,6 @@
 "use client";
 
 import { type FormEvent, type ReactNode, useMemo, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { Edit3, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -35,7 +34,6 @@ type Player = Doc<"players">;
 type PlayerDirectoryAdminViewProps = {
   tenantId: Id<"tenants">;
   tenantName: string;
-  tenantSlug: string;
 };
 
 type PlayerFormState = {
@@ -99,7 +97,6 @@ function playerToForm(player: Player): PlayerFormState {
 export function PlayerDirectoryAdminView({
   tenantId,
   tenantName,
-  tenantSlug,
 }: PlayerDirectoryAdminViewProps) {
   const players = useQuery(api.players.listByTenant, { tenantId });
   const createPlayer = useMutation(api.players.createPlayer);
@@ -137,50 +134,54 @@ export function PlayerDirectoryAdminView({
   function submitPlayer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submittingRef.current) return;
-    submittingRef.current = true;
+
     const duprRating = form.duprRating.trim() === "" ? null : Number(form.duprRating);
     if (duprRating !== null && (!Number.isFinite(duprRating) || duprRating < 0)) {
       toast.error("Enter a valid DUPR rating.");
       return;
     }
 
+    submittingRef.current = true;
     startTransition(async () => {
-      const payload = {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        skillSource: form.skillSource,
-        manualSkillLevel: form.manualSkillLevel,
-        username: textOrUndefined(form.username),
-        email: textOrUndefined(form.email),
-        phone: textOrUndefined(form.phone),
-        gender: textOrUndefined(form.gender),
-        avatarUrl: textOrUndefined(form.avatarUrl),
-        notes: textOrUndefined(form.notes),
-        optIn: form.optIn,
-      };
+      try {
+        const payload = {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          skillSource: form.skillSource,
+          manualSkillLevel: form.manualSkillLevel,
+          username: textOrUndefined(form.username),
+          email: textOrUndefined(form.email),
+          phone: textOrUndefined(form.phone),
+          gender: textOrUndefined(form.gender),
+          avatarUrl: textOrUndefined(form.avatarUrl),
+          notes: textOrUndefined(form.notes),
+          optIn: form.optIn,
+        };
 
-      const result = editingPlayerId
-        ? await updatePlayer({
-            tenantId,
-            playerId: editingPlayerId,
-            ...payload,
-            duprRating,
-          })
-        : await createPlayer({
-            tenantId,
-            ...payload,
-            duprRating: duprRating ?? undefined,
-          });
+        const result = editingPlayerId
+          ? await updatePlayer({
+              tenantId,
+              playerId: editingPlayerId,
+              ...payload,
+              duprRating,
+            })
+          : await createPlayer({
+              tenantId,
+              ...payload,
+              duprRating: duprRating ?? undefined,
+            });
 
-      if (result.success) {
-        toast.success(editingPlayerId ? "Player updated." : "Player created.");
-        if (!editingPlayerId) {
-          setForm(EMPTY_FORM);
+        if (result.success) {
+          toast.success(editingPlayerId ? "Player updated." : "Player created.");
+          if (!editingPlayerId) {
+            setForm(EMPTY_FORM);
+          }
+        } else {
+          toast.error(result.error);
         }
-      } else {
-        toast.error(result.error);
+      } finally {
+        submittingRef.current = false;
       }
-      submittingRef.current = false;
     });
   }
 
@@ -201,28 +202,13 @@ export function PlayerDirectoryAdminView({
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b bg-card/70 backdrop-blur">
-        <div className="mx-auto flex min-h-16 w-full max-w-7xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{tenantName}</p>
-            <h1 className="text-2xl font-semibold tracking-tight">Player Directory</h1>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/${tenantSlug}/admin/dashboard`}>Dashboard</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/${tenantSlug}/admin/open-play`}>Open Play</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/${tenantSlug}/admin/tournaments`}>Tournaments</Link>
-            </Button>
-          </div>
-        </div>
-      </header>
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{tenantName}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Player Directory</h1>
+      </div>
 
-      <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         <aside className="space-y-4">
           <Card>
             <CardHeader>
@@ -479,7 +465,7 @@ export function PlayerDirectoryAdminView({
             </CardContent>
           </Card>
         </section>
-      </main>
+      </div>
     </div>
   );
 }

@@ -344,20 +344,14 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b bg-card/70 backdrop-blur">
-        <div className="mx-auto flex min-h-16 w-full max-w-7xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
+    <>
+      <div className="border-b bg-muted/30 px-4 py-4">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{tenantName}</p>
             <h1 className="text-2xl font-semibold tracking-tight">Open Play Control</h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/${tenantSlug}/admin/dashboard`}>Tournament dashboard</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/${tenantSlug}/admin/players`}>Players</Link>
-            </Button>
             {livePath ? (
               <>
                 <Button type="button" variant="outline" size="sm" onClick={copyLiveLink}>
@@ -385,9 +379,9 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
             ) : null}
           </div>
         </div>
-      </header>
+      </div>
 
-      {showQr && liveUrl && (
+      {showQr && liveUrl ? (
         <div className="border-b bg-muted/50 px-4 py-4">
           <div className="mx-auto flex max-w-7xl justify-start">
             <SessionQrPanel
@@ -397,9 +391,9 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
             />
           </div>
         </div>
-      )}
+      ) : null}
 
-      <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="space-y-4">
           <Card>
             <CardHeader>
@@ -698,8 +692,8 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
             </div>
           </div>
         </section>
-      </main>
-    </div>
+      </div>
+    </>
   );
 }
 
