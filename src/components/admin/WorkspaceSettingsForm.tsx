@@ -69,7 +69,8 @@ export function WorkspaceSettingsForm({ tenant }: WorkspaceSettingsFormProps) {
         } else {
           toast.error(result.error ?? "Could not update workspace.");
         }
-      } catch {
+      } catch (error) {
+        console.error("Failed to update workspace settings", error);
         toast.error("Could not update workspace.");
       }
     });
