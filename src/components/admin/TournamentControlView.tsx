@@ -50,6 +50,7 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [scoreEntries, setScoreEntries] = useState<Record<string, ScoreEntry>>({});
+  const [seedEntries, setSeedEntries] = useState<Record<string, string>>({});
   const [activeTier, setActiveTier] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
 
@@ -57,6 +58,7 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
   const updateStatus = useMutation(api.tournaments.updateTournamentStatus);
   const generateBracket = useMutation(api.tournaments.generateBracket);
   const recordScore = useMutation(api.tournaments.recordTournamentScore);
+  const updateSeed = useMutation(api.tournaments.updateTeamSeed);
 
   if (view === undefined) {
     return <LoadingSkeleton />;
@@ -119,16 +121,64 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
     });
   }
 
-  function handleScoreChange(matchId: string, field: "score1" | "score2", value: string) {
+  function handleScoreChange(
+    matchId: string,
+    field: "score1" | "score2",
+    value: string,
+    fallback: ScoreEntry
+  ) {
     setScoreEntries((prev) => ({
       ...prev,
-      [matchId]: { ...(prev[matchId] ?? { score1: "", score2: "" }), [field]: value },
+      [matchId]: { ...(prev[matchId] ?? fallback), [field]: value },
     }));
   }
 
-  function handleRecordScore(matchId: Id<"tournamentMatches">) {
-    const entry = scoreEntries[matchId];
-    if (!entry) return;
+  function handleSeedChange(teamId: string, value: string) {
+    setSeedEntries((prev) => ({
+      ...prev,
+      [teamId]: value,
+    }));
+  }
+
+  function handleSaveSeed(team: TeamRow) {
+    const trimmedSeed = seedInputValue(seedEntries, team).trim();
+    const seed = trimmedSeed === "" ? null : Number(trimmedSeed);
+
+    if (seed !== null && (!Number.isInteger(seed) || seed <= 0)) {
+      toast.error("Seeds must be positive whole numbers.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const res = await updateSeed({
+          tenantId,
+          tournamentId,
+          entrantId: team.id as Id<"tournamentEntrants">,
+          seed,
+        });
+        if (res.success) {
+          toast.success(seed === null ? "Seed cleared." : "Seed updated.");
+          setSeedEntries((prev) => {
+            const next = { ...prev };
+            delete next[team.id];
+            return next;
+          });
+        } else {
+          toast.error(res.error ?? "Failed to update seed.");
+        }
+      } catch {
+        toast.error("Failed to update seed.");
+      }
+    });
+  }
+
+  function handleRecordScore(match: MatchRow) {
+    const matchId = match._id as Id<"tournamentMatches">;
+    const entry = scoreEntries[match._id] ?? {
+      score1: parseScoreEntry(match.score1),
+      score2: parseScoreEntry(match.score2),
+    };
     // Reject blank inputs explicitly: Number("") is 0, which would otherwise
     // be accepted as a valid score and could submit a 0-0 record.
     if (entry.score1.trim() === "" || entry.score2.trim() === "") {
@@ -147,10 +197,10 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
       try {
         const res = await recordScore({ tenantId, matchId, score1: s1, score2: s2 });
         if (res.success) {
-          toast.success("Score recorded.");
+          toast.success(match.status === "completed" ? "Score corrected." : "Score recorded.");
           setScoreEntries((prev) => {
             const next = { ...prev };
-            delete next[matchId];
+            delete next[match._id];
             return next;
           });
         } else {
@@ -179,6 +229,8 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
     status === "draft" ||
     status === "registration_open" ||
     status === "registration_closed";
+  const canEditSeeds = canGenerateBracket;
+  const typedTeams = teams as TeamRow[];
 
   return (
     <div className="space-y-8">
@@ -282,7 +334,14 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
         </div>
       )}
 
-      <RegisteredTeams teams={teams as Parameters<typeof RegisteredTeams>[0]["teams"]} />
+      <RegisteredTeams
+        teams={typedTeams}
+        canEditSeeds={canEditSeeds}
+        seedEntries={seedEntries}
+        onSeedChange={handleSeedChange}
+        onSaveSeed={handleSaveSeed}
+        disabled={isPending}
+      />
 
       {bracketRounds.length > 0 && (
         <div className="space-y-4">
@@ -329,20 +388,24 @@ export function TournamentControlView({ tenantId, tournamentId, tenant }: Props)
                         <p className="text-xs text-muted-foreground font-medium">
                           Round {round.round}
                         </p>
-                        {round.matches.map((match) => (
+                        {round.matches.map((match) => {
+                          const scoreFallback = {
+                            score1: parseScoreEntry(match.score1),
+                            score2: parseScoreEntry(match.score2),
+                          };
+                          return (
                           <MatchCard
                             key={match._id}
                             match={match as MatchRow}
-                            scoreEntry={scoreEntries[match._id] ?? { score1: "", score2: "" }}
+                            scoreEntry={scoreEntries[match._id] ?? scoreFallback}
                             onScoreChange={(field, value) =>
-                              handleScoreChange(match._id, field, value)
+                              handleScoreChange(match._id, field, value, scoreFallback)
                             }
-                            onRecordScore={() =>
-                              handleRecordScore(match._id as Id<"tournamentMatches">)
-                            }
+                            onRecordScore={() => handleRecordScore(match as MatchRow)}
                             disabled={isPending}
                           />
-                        ))}
+                          );
+                        })}
                       </div>
                     ))}
                   </div>
@@ -371,12 +434,30 @@ type TeamRow = {
   id: string;
   name: string;
   skillTier: string;
+  seed?: number | null;
+  createdAt?: number;
   players: string[];
 };
 
-function RegisteredTeams({ teams }: { teams: TeamRow[] }) {
+function RegisteredTeams({
+  teams,
+  canEditSeeds,
+  seedEntries,
+  onSeedChange,
+  onSaveSeed,
+  disabled,
+}: {
+  teams: TeamRow[];
+  canEditSeeds: boolean;
+  seedEntries: Record<string, string>;
+  onSeedChange: (teamId: string, value: string) => void;
+  onSaveSeed: (team: TeamRow) => void;
+  disabled: boolean;
+}) {
   const grouped = TIER_ORDER.reduce((acc, tier) => {
-    const tierTeams = teams.filter((t) => t.skillTier === tier);
+    const tierTeams = teams
+      .filter((t) => t.skillTier === tier)
+      .sort(compareTeamsBySeed);
     if (tierTeams.length > 0) acc[tier] = tierTeams;
     return acc;
   }, {} as Record<string, TeamRow[]>);
@@ -399,6 +480,11 @@ function RegisteredTeams({ teams }: { teams: TeamRow[] }) {
       <h3 className="text-lg font-semibold">
         Registered Teams <span className="text-muted-foreground font-normal text-sm">({teams.length})</span>
       </h3>
+      {canEditSeeds && (
+        <p className="text-sm text-muted-foreground">
+          Seeds are unique within each skill tier. Blank seeds stay ordered by registration time.
+        </p>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {activeTiers.map((tier) => (
           <Card key={tier}>
@@ -411,9 +497,39 @@ function RegisteredTeams({ teams }: { teams: TeamRow[] }) {
             <CardContent className="p-0">
               <ul className="divide-y">
                 {grouped[tier].map((team) => (
-                  <li key={team.id} className="px-4 py-2">
-                    <p className="text-sm font-medium">{team.name}</p>
-                    <p className="text-xs text-muted-foreground">{team.players.join(" & ")}</p>
+                  <li key={team.id} className="px-4 py-3 space-y-2">
+                    <div>
+                      <p className="text-sm font-medium">{team.name}</p>
+                      <p className="text-xs text-muted-foreground">{team.players.join(" & ")}</p>
+                    </div>
+                    {canEditSeeds ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={seedInputValue(seedEntries, team)}
+                          onChange={(e) => onSeedChange(team.id, e.target.value)}
+                          className="h-8 w-24 text-xs"
+                          placeholder="Unseeded"
+                          disabled={disabled}
+                          aria-label={`Seed for ${team.name}`}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => onSaveSeed(team)}
+                          disabled={disabled}
+                        >
+                          Save Seed
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Seed {team.seed ?? "Unseeded"}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -423,6 +539,24 @@ function RegisteredTeams({ teams }: { teams: TeamRow[] }) {
       </div>
     </div>
   );
+}
+
+function seedInputValue(seedEntries: Record<string, string>, team: TeamRow): string {
+  return seedEntries[team.id] ?? (team.seed == null ? "" : String(team.seed));
+}
+
+function compareTeamsBySeed(a: TeamRow, b: TeamRow): number {
+  const seedA = a.seed ?? Number.MAX_SAFE_INTEGER;
+  const seedB = b.seed ?? Number.MAX_SAFE_INTEGER;
+  if (seedA !== seedB) return seedA - seedB;
+  const createdAtA = a.createdAt ?? Number.MAX_SAFE_INTEGER;
+  const createdAtB = b.createdAt ?? Number.MAX_SAFE_INTEGER;
+  if (createdAtA !== createdAtB) return createdAtA - createdAtB;
+  return a.name.localeCompare(b.name);
+}
+
+function parseScoreEntry(value: number | null | undefined): string {
+  return value == null ? "" : String(value);
 }
 
 function RoundRobinStandings({
@@ -483,7 +617,7 @@ function MatchCard({
   const e2Label = entrant2Label(match);
 
   const isCompleted = match.status === "completed";
-  const canScore = !isCompleted && !!match.entrant1Id && !!match.entrant2Id && !bye;
+  const canScore = !!match.entrant1Id && !!match.entrant2Id && !bye;
 
   return (
     <div
@@ -551,7 +685,7 @@ function MatchCard({
             onClick={onRecordScore}
             disabled={disabled || !scoreEntry.score1 || !scoreEntry.score2}
           >
-            Save
+            {isCompleted ? "Correct" : "Save"}
           </Button>
         </div>
       )}

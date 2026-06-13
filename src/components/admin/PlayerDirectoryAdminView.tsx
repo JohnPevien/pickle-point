@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useMemo, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useMemo, useRef, useState, useTransition } from "react";
 import { Edit3, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -103,6 +103,7 @@ export function PlayerDirectoryAdminView({
   const updatePlayer = useMutation(api.players.updatePlayer);
   const deletePlayer = useMutation(api.players.deletePlayer);
   const [isPending, startTransition] = useTransition();
+  const submittingRef = useRef(false);
   const [filters, setFilters] = useState<PlayerDirectoryFilters>(EMPTY_FILTERS);
   const [editingPlayerId, setEditingPlayerId] = useState<Id<"players"> | null>(null);
   const [form, setForm] = useState<PlayerFormState>(EMPTY_FORM);
@@ -132,47 +133,54 @@ export function PlayerDirectoryAdminView({
 
   function submitPlayer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
+
     const duprRating = form.duprRating.trim() === "" ? null : Number(form.duprRating);
     if (duprRating !== null && (!Number.isFinite(duprRating) || duprRating < 0)) {
       toast.error("Enter a valid DUPR rating.");
       return;
     }
 
+    submittingRef.current = true;
     startTransition(async () => {
-      const payload = {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        skillSource: form.skillSource,
-        manualSkillLevel: form.manualSkillLevel,
-        username: textOrUndefined(form.username),
-        email: textOrUndefined(form.email),
-        phone: textOrUndefined(form.phone),
-        gender: textOrUndefined(form.gender),
-        avatarUrl: textOrUndefined(form.avatarUrl),
-        notes: textOrUndefined(form.notes),
-        optIn: form.optIn,
-      };
+      try {
+        const payload = {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          skillSource: form.skillSource,
+          manualSkillLevel: form.manualSkillLevel,
+          username: textOrUndefined(form.username),
+          email: textOrUndefined(form.email),
+          phone: textOrUndefined(form.phone),
+          gender: textOrUndefined(form.gender),
+          avatarUrl: textOrUndefined(form.avatarUrl),
+          notes: textOrUndefined(form.notes),
+          optIn: form.optIn,
+        };
 
-      const result = editingPlayerId
-        ? await updatePlayer({
-            tenantId,
-            playerId: editingPlayerId,
-            ...payload,
-            duprRating,
-          })
-        : await createPlayer({
-            tenantId,
-            ...payload,
-            duprRating: duprRating ?? undefined,
-          });
+        const result = editingPlayerId
+          ? await updatePlayer({
+              tenantId,
+              playerId: editingPlayerId,
+              ...payload,
+              duprRating,
+            })
+          : await createPlayer({
+              tenantId,
+              ...payload,
+              duprRating: duprRating ?? undefined,
+            });
 
-      if (result.success) {
-        toast.success(editingPlayerId ? "Player updated." : "Player created.");
-        if (!editingPlayerId) {
-          setForm(EMPTY_FORM);
+        if (result.success) {
+          toast.success(editingPlayerId ? "Player updated." : "Player created.");
+          if (!editingPlayerId) {
+            setForm(EMPTY_FORM);
+          }
+        } else {
+          toast.error(result.error);
         }
-      } else {
-        toast.error(result.error);
+      } finally {
+        submittingRef.current = false;
       }
     });
   }

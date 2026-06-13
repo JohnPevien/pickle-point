@@ -61,7 +61,8 @@ export function WorkspaceSetupForm({ defaultContactEmail = "" }: WorkspaceSetupF
         } else {
           toast.error(result.error ?? "Could not create workspace.");
         }
-      } catch {
+      } catch (error) {
+        console.error("Failed to create workspace", error);
         toast.error("Could not create workspace.");
       }
     });

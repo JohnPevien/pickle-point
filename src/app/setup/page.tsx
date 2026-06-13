@@ -33,11 +33,29 @@ export default async function SetupPage() {
   }
 
   const auth = await withAuth({ ensureSignedIn: true });
-  const currentWorkspace = await fetchQuery(
-    api.tenants.getCurrentWorkspace,
-    {},
-    { token: auth.accessToken }
-  );
+
+  let currentWorkspace: Awaited<ReturnType<typeof fetchQuery>> | null = null;
+  try {
+    currentWorkspace = await fetchQuery(
+      api.tenants.getCurrentWorkspace,
+      {},
+      { token: auth.accessToken }
+    );
+  } catch (error) {
+    console.error("Failed to load current workspace", error);
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-12">
+        <Card className="w-full max-w-2xl">
+          <CardHeader>
+            <CardTitle>Setup temporarily unavailable</CardTitle>
+            <CardDescription>
+              We could not load your workspace from Convex. Please try again in a moment.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </main>
+    );
+  }
 
   if (currentWorkspace) {
     redirect(`/${currentWorkspace.tenant._id}/admin/dashboard`);

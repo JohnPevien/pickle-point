@@ -31,7 +31,7 @@ function optionalString(value: string | undefined) {
 
 function normalizeContactEmail(value: string) {
   const email = requiredString(value)?.toLowerCase();
-  if (!email || !email.includes("@")) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return null;
   }
   return email;
@@ -201,10 +201,6 @@ export const updateWorkspace = mutation({
 
     if (currentUser.user.tenantId !== args.tenantId) {
       return { success: false, error: "Workspace access denied." };
-    }
-
-    if (!(await ctx.db.get(args.tenantId))) {
-      return { success: false, error: "Workspace not found." };
     }
 
     const normalized = normalizeWorkspaceInput(args);

@@ -24,6 +24,51 @@ describe("Tenants", () => {
     });
   }
 
+  async function createWorkspaceFor(
+    t: ReturnType<typeof convexTest>,
+    tokenIdentifier: string,
+    name = workspaceInput.name
+  ) {
+    const authed = asIdentity(t, tokenIdentifier);
+    const result = await authed.mutation(api.tenants.createWorkspace, {
+      ...workspaceInput,
+      name,
+    });
+    return (result as { tenantId: Id<"tenants"> }).tenantId;
+  }
+
+  describe("getCurrentWorkspace", () => {
+    test("returns null without an authenticated identity", async () => {
+      const t = convexTest(schema, modules);
+
+      const currentWorkspace = await t.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace).toBeNull();
+    });
+
+    test("returns null when the authenticated identity has no user mapping", async () => {
+      const t = convexTest(schema, modules);
+      const authed = asIdentity(t, "https://example.com|orphan-001");
+
+      const currentWorkspace = await authed.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace).toBeNull();
+    });
+
+    test("returns the authenticated user's workspace", async () => {
+      const t = convexTest(schema, modules);
+      const authed = asIdentity(t, "https://example.com|owner-current-001");
+      const tenantId = await createWorkspaceFor(t, "https://example.com|owner-current-001");
+
+      const currentWorkspace = await authed.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace?.tenant._id).toBe(tenantId);
+      expect(currentWorkspace?.tenant.name).toBe("Test Pickleball Club");
+      expect(currentWorkspace?.tenant.contactEmail).toBe("gm@testclub.com");
+      expect(currentWorkspace?.user.tenantId).toBe(tenantId);
+    });
+  });
+
   describe("createWorkspace", () => {
     test("requires an authenticated identity", async () => {
       const t = convexTest(schema, modules);
@@ -74,22 +119,25 @@ describe("Tenants", () => {
       );
       expect((second as { created: boolean }).created).toBe(false);
     });
+
+    test.each(["owner@", "@example.com", "owner example.com", "owner@example"])(
+      "rejects malformed contact email %s",
+      async (contactEmail) => {
+        const t = convexTest(schema, modules);
+        const authed = asIdentity(t, "https://example.com|owner-invalid-email");
+
+        const result = await authed.mutation(api.tenants.createWorkspace, {
+          ...workspaceInput,
+          contactEmail,
+        });
+
+        expect(result.success).toBe(false);
+        expect((result as any).error).toMatch(/valid contact email/i);
+      }
+    );
   });
 
   describe("updateWorkspace", () => {
-    async function createWorkspaceFor(
-      t: ReturnType<typeof convexTest>,
-      tokenIdentifier: string,
-      name = workspaceInput.name
-    ) {
-      const authed = asIdentity(t, tokenIdentifier);
-      const result = await authed.mutation(api.tenants.createWorkspace, {
-        ...workspaceInput,
-        name,
-      });
-      return (result as { tenantId: Id<"tenants"> }).tenantId;
-    }
-
     test("requires an authenticated identity", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await createWorkspaceFor(t, "https://example.com|owner-003");
@@ -146,6 +194,21 @@ describe("Tenants", () => {
 
       expect(result.success).toBe(false);
       expect((result as any).error).toMatch(/access denied/i);
+    });
+
+    test("rejects malformed contact email", async () => {
+      const t = convexTest(schema, modules);
+      const authed = asIdentity(t, "https://example.com|owner-007");
+      const tenantId = await createWorkspaceFor(t, "https://example.com|owner-007");
+
+      const result = await authed.mutation(api.tenants.updateWorkspace, {
+        tenantId,
+        ...workspaceInput,
+        contactEmail: "owner@",
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/valid contact email/i);
     });
   });
 });

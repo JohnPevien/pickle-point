@@ -20,6 +20,16 @@ const SKILL_MAP: Record<string, number> = {
 
 const DEFAULT_SESSION_LIST_LIMIT = 50;
 const MAX_SESSION_LIST_LIMIT = 100;
+const INITIAL_ROTATION_METADATA = {
+  matchesPlayed: 0,
+  sitOutCount: 0,
+  consecutiveSitOuts: 0,
+  lastPlayedAt: undefined,
+  lastSatOutAt: undefined,
+} as const;
+
+type SessionPlayerDoc = Doc<"sessionPlayers">;
+type SessionPlayerPatch = Partial<Omit<SessionPlayerDoc, "_id" | "_creationTime">>;
 
 function clampInt(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.trunc(value), min), max);
@@ -31,6 +41,51 @@ function requiredName(value: string) {
     return null;
   }
   return trimmed;
+}
+
+function rotationNumber(
+  player: SessionPlayerDoc,
+  field: "matchesPlayed" | "sitOutCount" | "consecutiveSitOuts"
+) {
+  return player[field] ?? 0;
+}
+
+function compareRotationPriority(a: SessionPlayerDoc, b: SessionPlayerDoc) {
+  const consecutiveDiff = rotationNumber(b, "consecutiveSitOuts") - rotationNumber(a, "consecutiveSitOuts");
+  if (consecutiveDiff !== 0) return consecutiveDiff;
+
+  const sitOutDiff = rotationNumber(b, "sitOutCount") - rotationNumber(a, "sitOutCount");
+  if (sitOutDiff !== 0) return sitOutDiff;
+
+  const aLastPlayed = a.lastPlayedAt ?? Number.NEGATIVE_INFINITY;
+  const bLastPlayed = b.lastPlayedAt ?? Number.NEGATIVE_INFINITY;
+  if (aLastPlayed !== bLastPlayed) return aLastPlayed - bLastPlayed;
+
+  const queueDiff =
+    (a.queuePosition ?? Number.MAX_SAFE_INTEGER) -
+    (b.queuePosition ?? Number.MAX_SAFE_INTEGER);
+  if (queueDiff !== 0) return queueDiff;
+
+  return a.checkedInAt - b.checkedInAt;
+}
+
+function markPlayerPlaying(player: SessionPlayerDoc, timestamp: number): SessionPlayerPatch {
+  return {
+    status: "playing",
+    queuePosition: undefined,
+    matchesPlayed: rotationNumber(player, "matchesPlayed") + 1,
+    consecutiveSitOuts: 0,
+    lastPlayedAt: timestamp,
+  };
+}
+
+function markPlayerSittingOut(player: SessionPlayerDoc, timestamp: number): SessionPlayerPatch {
+  return {
+    status: "sitting_out",
+    sitOutCount: rotationNumber(player, "sitOutCount") + 1,
+    consecutiveSitOuts: rotationNumber(player, "consecutiveSitOuts") + 1,
+    lastSatOutAt: timestamp,
+  };
 }
 
 async function allocateQueuePositions(
@@ -308,6 +363,7 @@ export const checkInPlayer = mutation({
         status: "queued",
         queuePosition,
         checkedInAt: Date.now(),
+        ...INITIAL_ROTATION_METADATA,
       });
     } else {
       await ctx.db.insert("sessionPlayers", {
@@ -316,6 +372,7 @@ export const checkInPlayer = mutation({
         status: "queued",
         queuePosition,
         checkedInAt: Date.now(),
+        ...INITIAL_ROTATION_METADATA,
       });
     }
 
@@ -408,6 +465,7 @@ export const registerAndCheckInGuest = mutation({
         status: "queued",
         queuePosition,
         checkedInAt: Date.now(),
+        ...INITIAL_ROTATION_METADATA,
       });
     } else {
       await ctx.db.insert("sessionPlayers", {
@@ -416,6 +474,7 @@ export const registerAndCheckInGuest = mutation({
         status: "queued",
         queuePosition,
         checkedInAt: Date.now(),
+        ...INITIAL_ROTATION_METADATA,
       });
     }
 
@@ -435,6 +494,7 @@ export const updatePlayerStatus = mutation({
       v.literal("queued"),
       v.literal("playing"),
       v.literal("sitting_out"),
+      v.literal("paused"),
       v.literal("left")
     ),
   },
@@ -453,10 +513,10 @@ export const updatePlayerStatus = mutation({
     if (args.status === "queued") {
       const [queuePosition] = await allocateQueuePositions(ctx, args.sessionId);
       await ctx.db.patch(record._id, { status: args.status, queuePosition });
+    } else if (args.status === "sitting_out") {
+      await ctx.db.patch(record._id, markPlayerSittingOut(record, Date.now()));
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { _id, _creationTime, queuePosition: _qp, ...rest } = record;
-      await ctx.db.replace(record._id, { ...rest, status: args.status });
+      await ctx.db.patch(record._id, { status: args.status, queuePosition: undefined });
     }
     return { success: true };
   },
@@ -560,22 +620,12 @@ export const generateMatches = mutation({
         !playingPlayerIds.has(sp.playerId)
     );
 
-    // Sort available players by queue position (players waiting longest first)
-    // Players with status 'queued' are prioritized by queuePosition.
-    // 'sitting_out' players have no queuePosition, so they go to the back.
-    const sortedAvailable = [...availableSessionPlayers].sort((a, b) => {
-      if (a.status === "queued" && b.status === "queued") {
-        return (a.queuePosition ?? 0) - (b.queuePosition ?? 0);
-      }
-      if (a.status === "queued") return -1;
-      if (b.status === "queued") return 1;
-      return a.checkedInAt - b.checkedInAt;
-    });
+    const sortedAvailable = [...availableSessionPlayers].sort(compareRotationPriority);
 
     const assignableSessionPlayers = sortedAvailable.slice(0, availableCourtsCount * 4);
 
     if (assignableSessionPlayers.length < 4) {
-      return { success: false, error: "Not enough players in queue to generate a match (need at least 4)." };
+      return { success: false, error: "Not enough players available to generate a match (need at least 4)." };
     }
 
     // Load actual player detail documents to perform smart matching
@@ -594,6 +644,8 @@ export const generateMatches = mutation({
 
     // We can generate up to `availableCourtsCount` matches
     const matchesCreated: Id<"sessionMatches">[] = [];
+    const selectedSessionPlayerIds = new Set<string>();
+    const generationTime = Date.now();
     let playerIndex = 0;
 
     for (let court = 0; court < availableCourtsCount; court++) {
@@ -645,18 +697,29 @@ export const generateMatches = mutation({
         team1,
         team2,
         status: "in_progress",
-        createdAt: Date.now(),
+        createdAt: generationTime,
       });
 
       // Update statuses of the 4 players to 'playing' and remove from queue pos
       for (const player of candidates) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { _id, _creationTime, queuePosition: _qp, ...rest } = player.sessionPlayer;
-        await ctx.db.replace(player.sessionPlayer._id, { ...rest, status: "playing" });
+        selectedSessionPlayerIds.add(player.sessionPlayer._id);
+        await ctx.db.patch(
+          player.sessionPlayer._id,
+          markPlayerPlaying(player.sessionPlayer, generationTime)
+        );
       }
 
       matchesCreated.push(matchId);
     }
+
+    const skippedPlayers = availableSessionPlayers.filter(
+      (player) => !selectedSessionPlayerIds.has(player._id)
+    );
+    await Promise.all(
+      skippedPlayers.map((player) =>
+        ctx.db.patch(player._id, markPlayerSittingOut(player, generationTime))
+      )
+    );
 
     return {
       success: true,
@@ -1036,9 +1099,10 @@ export const substituteMatchPlayer = mutation({
     ]);
 
     // Apply the three independent writes in a single transaction batch.
+    const substitutionTime = Date.now();
     const writes: Promise<unknown>[] = [
       ctx.db.patch(args.matchId, { team1: newTeam1, team2: newTeam2 }),
-      ctx.db.patch(incomingSP._id, { status: "playing", queuePosition: undefined }),
+      ctx.db.patch(incomingSP._id, markPlayerPlaying(incomingSP, substitutionTime)),
     ];
     if (outgoingSP) {
       writes.push(
