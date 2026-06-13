@@ -38,6 +38,11 @@ type SessionPlayerLike = {
   status: string;
   queuePosition?: number;
   checkedInAt: number;
+  matchesPlayed?: number;
+  sitOutCount?: number;
+  consecutiveSitOuts?: number;
+  lastPlayedAt?: number;
+  lastSatOutAt?: number;
   playerDetails?: NamedPlayer;
 };
 
@@ -85,11 +90,22 @@ export function teamName(players: NamedPlayer[] | undefined) {
 
 export function sortSessionPlayers<T extends SessionPlayerLike>(players: T[]) {
   return [...players].sort((a, b) => {
+    const aStatusRank = sessionPlayerStatusRank(a.status);
+    const bStatusRank = sessionPlayerStatusRank(b.status);
+    if (aStatusRank !== bStatusRank) return aStatusRank - bStatusRank;
+
     if (a.status === "queued" && b.status === "queued") {
       return (a.queuePosition ?? Number.MAX_SAFE_INTEGER) - (b.queuePosition ?? Number.MAX_SAFE_INTEGER);
     }
-    if (a.status === "queued") return -1;
-    if (b.status === "queued") return 1;
+    if (a.status === "sitting_out" && b.status === "sitting_out") {
+      const consecutiveDiff = (b.consecutiveSitOuts ?? 0) - (a.consecutiveSitOuts ?? 0);
+      if (consecutiveDiff !== 0) return consecutiveDiff;
+      const sitOutDiff = (b.sitOutCount ?? 0) - (a.sitOutCount ?? 0);
+      if (sitOutDiff !== 0) return sitOutDiff;
+      const aLastPlayed = a.lastPlayedAt ?? Number.NEGATIVE_INFINITY;
+      const bLastPlayed = b.lastPlayedAt ?? Number.NEGATIVE_INFINITY;
+      if (aLastPlayed !== bLastPlayed) return aLastPlayed - bLastPlayed;
+    }
     return a.checkedInAt - b.checkedInAt;
   });
 }
@@ -181,6 +197,25 @@ function titleize(value: string) {
     .join(" ");
 }
 
+function sessionPlayerStatusRank(status: string) {
+  switch (status) {
+    case "sitting_out":
+      return 0;
+    case "queued":
+      return 1;
+    case "paused":
+      return 2;
+    case "playing":
+      return 3;
+    case "checked_in":
+      return 4;
+    case "left":
+      return 5;
+    default:
+      return 6;
+  }
+}
+
 /**
  * Builds the public live session URL for a tenant/session.
  * Pure function — does not depend on window or browser APIs.
@@ -194,7 +229,8 @@ export function buildLiveSessionUrl(
 }
 
 const QUEUE_STATUS_LABELS: Record<string, string> = {
-  sitting_out: "Sitting out",
+  sitting_out: "Sitting out - priority next",
+  paused: "Paused",
   playing: "Playing",
   left: "Left",
   checked_in: "Checked in",
@@ -214,6 +250,22 @@ export function formatQueueLabel(
   return QUEUE_STATUS_LABELS[player.status] ?? "Waiting…";
 }
 
+export function formatRotationStats(player: SessionPlayerLike): string {
+  const matchesPlayed = player.matchesPlayed ?? 0;
+  const sitOutCount = player.sitOutCount ?? 0;
+  const consecutiveSitOuts = player.consecutiveSitOuts ?? 0;
+  const stats = [
+    `${matchesPlayed} ${matchesPlayed === 1 ? "match" : "matches"}`,
+    `${sitOutCount} ${sitOutCount === 1 ? "sit-out" : "sit-outs"}`,
+  ];
+
+  if (consecutiveSitOuts > 0) {
+    stats.push(`${consecutiveSitOuts} straight`);
+  }
+
+  return stats.join(" | ");
+}
+
 type ActiveMatchLike = {
   team1: string[];
   team2: string[];
@@ -230,4 +282,10 @@ export function getActivePlayerIds(matches: ActiveMatchLike[]): Set<string> {
     for (const id of match.team2) ids.add(id);
   }
   return ids;
+}
+
+export const AVAILABLE_STATUSES = new Set(["queued", "sitting_out"]);
+
+export function isAvailablePlayer(player: SessionPlayerLike): boolean {
+  return AVAILABLE_STATUSES.has(player.status);
 }

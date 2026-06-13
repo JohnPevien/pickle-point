@@ -92,10 +92,16 @@ export default defineSchema({
       v.literal("queued"),
       v.literal("playing"),
       v.literal("sitting_out"),
+      v.literal("paused"),
       v.literal("left")
     ),
     queuePosition: v.optional(v.number()),
     checkedInAt: v.number(),
+    matchesPlayed: v.optional(v.number()),
+    sitOutCount: v.optional(v.number()),
+    consecutiveSitOuts: v.optional(v.number()),
+    lastPlayedAt: v.optional(v.number()),
+    lastSatOutAt: v.optional(v.number()),
   })
     .index("by_session", ["sessionId"])
     .index("by_playerId", ["playerId"])
