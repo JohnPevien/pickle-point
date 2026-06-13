@@ -7,10 +7,13 @@ import schema from "./schema";
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 
 describe("Players", () => {
-  async function seedTenant(t: ReturnType<typeof convexTest>) {
+  async function seedTenant(
+    t: ReturnType<typeof convexTest>,
+    override: Record<string, any> = {}
+  ) {
     return await t.mutation(internal.tenants.seed, {
-      name: "Test Club",
-      contactEmail: "gm@testclub.com",
+      name: override.name ?? "Test Club",
+      contactEmail: override.contactEmail ?? "gm@testclub.com",
     });
   }
 
@@ -41,6 +44,19 @@ describe("Players", () => {
         date: Date.now(),
         status: "registration_open",
         format: "round_robin",
+        createdAt: Date.now(),
+      });
+    });
+  }
+
+  async function seedSession(t: ReturnType<typeof convexTest>, tenantId: any) {
+    return await t.run(async (ctx) => {
+      return await ctx.db.insert("openPlaySessions", {
+        tenantId,
+        name: "Tuesday Open Play",
+        date: Date.now(),
+        status: "draft",
+        matchingMode: "auto_balanced",
         createdAt: Date.now(),
       });
     });
@@ -167,6 +183,7 @@ describe("Players", () => {
       const playerId = await seedPlayer(t, tenantId, { firstName: "Frank" });
 
       const result = await t.mutation(api.players.updatePlayer, {
+        tenantId: tenantId as any,
         playerId: playerId as any,
         firstName: "Franklin",
         manualSkillLevel: "Advanced",
@@ -184,6 +201,7 @@ describe("Players", () => {
       const playerId = await seedPlayer(t, tenantId, { firstName: "Trim" });
 
       const result = await t.mutation(api.players.updatePlayer, {
+        tenantId: tenantId as any,
         playerId: playerId as any,
         email: " trim@example.com ",
         phone: " 555-1234 ",
@@ -264,6 +282,7 @@ describe("Players", () => {
       const playerId = await seedPlayer(t, tenantId, { email: "available@example.com" });
 
       const result = await t.mutation(api.players.updatePlayer, {
+        tenantId: tenantId as any,
         playerId: playerId as any,
         email: " taken@example.com ",
       });
@@ -279,6 +298,7 @@ describe("Players", () => {
       const playerId = await seedPlayer(t, tenantId, { phone: "555-0002" });
 
       const result = await t.mutation(api.players.updatePlayer, {
+        tenantId: tenantId as any,
         playerId: playerId as any,
         phone: " 555-0001 ",
       });
@@ -297,12 +317,34 @@ describe("Players", () => {
       });
 
       const result = await t.mutation(api.players.updatePlayer, {
+        tenantId: tenantId as any,
         playerId: playerId as any,
         firstName: "Ghost",
       });
 
       expect(result.success).toBe(false);
       expect((result as any).error).toMatch(/not found/i);
+    });
+
+    test("rejects updates scoped to another tenant", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const otherTenantId = await seedTenant(t, {
+        name: "Other Club",
+        contactEmail: "other@testclub.com",
+      });
+      const playerId = await seedPlayer(t, tenantId, { firstName: "Owner" });
+
+      const result = await t.mutation(api.players.updatePlayer, {
+        tenantId: otherTenantId as any,
+        playerId: playerId as any,
+        firstName: "Intruder",
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/workspace mismatch/i);
+      const unchanged = await t.query(api.players.getById, { playerId: playerId as any });
+      expect(unchanged?.firstName).toBe("Owner");
     });
   });
 
@@ -312,7 +354,10 @@ describe("Players", () => {
       const tenantId = await seedTenant(t);
       const playerId = await seedPlayer(t, tenantId);
 
-      const result = await t.mutation(api.players.deletePlayer, { playerId: playerId as any });
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: tenantId as any,
+        playerId: playerId as any,
+      });
       expect(result.success).toBe(true);
 
       const gone = await t.query(api.players.getById, { playerId: playerId as any });
@@ -328,9 +373,134 @@ describe("Players", () => {
         await ctx.db.delete(playerId as any);
       });
 
-      const result = await t.mutation(api.players.deletePlayer, { playerId: playerId as any });
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: tenantId as any,
+        playerId: playerId as any,
+      });
       expect(result.success).toBe(false);
       expect((result as any).error).toMatch(/not found/i);
+    });
+
+    test("rejects deletes scoped to another tenant", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const otherTenantId = await seedTenant(t, {
+        name: "Other Club",
+        contactEmail: "other-delete@testclub.com",
+      });
+      const playerId = await seedPlayer(t, tenantId);
+
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: otherTenantId as any,
+        playerId: playerId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/workspace mismatch/i);
+      const stillExists = await t.query(api.players.getById, { playerId: playerId as any });
+      expect(stillExists).not.toBeNull();
+    });
+
+    test("blocks delete when player is in a session", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const sessionId = await seedSession(t, tenantId);
+      const playerId = await seedPlayer(t, tenantId);
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("sessionPlayers", {
+          sessionId: sessionId as any,
+          playerId: playerId as any,
+          status: "queued",
+          checkedInAt: Date.now(),
+        });
+      });
+
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: tenantId as any,
+        playerId: playerId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/sessions/i);
+    });
+
+    test("blocks delete when player is a tournament entrant", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const tournamentId = await seedTournament(t, tenantId);
+      const playerId = await seedPlayer(t, tenantId, { firstName: "Entrant" });
+      const partnerId = await seedPlayer(t, tenantId, { firstName: "Partner" });
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("tournamentEntrants", {
+          tournamentId: tournamentId as any,
+          name: "Entrant Team",
+          player1Id: partnerId as any,
+          player2Id: playerId as any,
+          skillTier: "Novice",
+          createdAt: Date.now(),
+        });
+      });
+
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: tenantId as any,
+        playerId: playerId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/tournament entrants/i);
+    });
+
+    test("blocks delete when player appears in match history", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const playerId = await seedPlayer(t, tenantId, { firstName: "History" });
+      const partnerId = await seedPlayer(t, tenantId, { firstName: "Partner" });
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("matchHistory", {
+          tenantId: tenantId as any,
+          players: [playerId as any, partnerId as any],
+          winners: [playerId as any],
+          scores: [11, 7],
+          playedAt: Date.now(),
+        });
+      });
+
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: tenantId as any,
+        playerId: playerId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/match history/i);
+    });
+
+    test("blocks delete when player has stats snapshots", async () => {
+      const t = convexTest(schema, modules);
+      const tenantId = await seedTenant(t);
+      const playerId = await seedPlayer(t, tenantId, { firstName: "Stats" });
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("statsSnapshots", {
+          tenantId: tenantId as any,
+          playerId: playerId as any,
+          wins: 1,
+          losses: 0,
+          pointsFor: 11,
+          pointsAgainst: 3,
+          snapshotDate: Date.now(),
+        });
+      });
+
+      const result = await t.mutation(api.players.deletePlayer, {
+        tenantId: tenantId as any,
+        playerId: playerId as any,
+      });
+
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/stats/i);
     });
   });
 

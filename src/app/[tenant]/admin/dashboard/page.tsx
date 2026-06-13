@@ -45,6 +45,9 @@ export default async function AdminDashboardPage({
               <Link href={`/${tenant}/admin/tournaments`}>Tournaments</Link>
             </Button>
             <Button asChild variant="outline" size="sm">
+              <Link href={`/${tenant}/admin/players`}>Players</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
               <Link href={`/${tenant}/admin/open-play`}>Open Play</Link>
             </Button>
             <Button asChild variant="outline" size="sm">
