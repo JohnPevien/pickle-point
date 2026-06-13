@@ -15,7 +15,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getActivePlayerIds, playerName } from "@/lib/open-play/helpers";
+import {
+  arePlayersOnSameMatchTeam,
+  canCancelMatchAdjustment,
+  canSubstituteMatchPlayer,
+  canSwapMatchPlayers,
+  getActivePlayerIds,
+  getEligibleSubstitutes,
+  isMatchScored,
+  playerName,
+} from "@/lib/open-play/helpers";
 import type { LiveMatch, SessionPlayerRow } from "@/lib/open-play/types";
 
 type MatchAdjustPanelProps = {
@@ -47,24 +56,17 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
   // The swap mutation treats same-team swaps as a no-op (returns success),
   // so we surface a distinct error in submitSwap and also disable the Swap
   // button here to give the user immediate visual feedback.
-  const sameTeam =
-    !!swapA &&
-    !!swapB &&
-    ((match.team1Details.some((p) => p?._id === swapA) &&
-      match.team1Details.some((p) => p?._id === swapB)) ||
-      (match.team2Details.some((p) => p?._id === swapA) &&
-        match.team2Details.some((p) => p?._id === swapB)));
+  const sameTeam = arePlayersOnSameMatchTeam(match, swapA, swapB);
+  const canSubmitSwap = canSwapMatchPlayers(match, swapA, swapB);
 
   // Substitute
   const activePlayerIds = getActivePlayerIds(activeMatches);
   const [outgoing, setOutgoing] = useState<string>("");
   const [incoming, setIncoming] = useState<string>("");
 
-  const substituteEligible = sessionPlayers.filter(
-    (sp) =>
-      (sp.status === "queued" || sp.status === "sitting_out") &&
-      !activePlayerIds.has(sp.playerId)
-  );
+  const substituteEligible = getEligibleSubstitutes(sessionPlayers, activePlayerIds);
+  const isScored = isMatchScored(match);
+  const canSubmitSubstitute = canSubstituteMatchPlayer(match, outgoing, incoming);
 
   function submitCourtRename(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -90,6 +92,10 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
       toast.error("Both players are already on the same team.");
       return;
     }
+    if (!canSubmitSwap) {
+      toast.error("Select players from opposite teams to swap.");
+      return;
+    }
     startTransition(async () => {
       const result = await swapMatchPlayers({
         matchId: match._id,
@@ -110,6 +116,10 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
     e.preventDefault();
     if (!outgoing || !incoming) {
       toast.error("Select both outgoing and incoming players.");
+      return;
+    }
+    if (!canSubmitSubstitute) {
+      toast.error("Cannot substitute after scoring.");
       return;
     }
     startTransition(async () => {
@@ -141,8 +151,6 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
       }
     });
   }
-
-  const isScored = match.score1 != null || match.score2 != null;
 
   return (
     <div className="mt-3 border-t pt-3">
@@ -216,7 +224,7 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
               type="submit"
               size="sm"
               variant="outline"
-              disabled={isPending || !swapA || !swapB || swapA === swapB || sameTeam}
+              disabled={isPending || !canSubmitSwap}
               className="h-8 w-full"
             >
               Swap
@@ -269,7 +277,7 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
               type="submit"
               size="sm"
               variant="outline"
-              disabled={isPending || isScored || !outgoing || !incoming}
+              disabled={isPending || !canSubmitSubstitute}
               className="h-8 w-full"
             >
               Substitute
@@ -282,7 +290,7 @@ export function MatchAdjustPanel({ match, sessionPlayers, activeMatches }: Match
               type="button"
               size="sm"
               variant="outline"
-              disabled={isPending || isScored}
+              disabled={isPending || !canCancelMatchAdjustment(match)}
               onClick={submitCancel}
               className="h-8 w-full border-destructive/40 text-destructive hover:bg-destructive/10"
               id={`match-cancel-btn-${match._id}`}
