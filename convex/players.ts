@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   findPlayerByContact,
@@ -23,6 +24,57 @@ function requiredName(value: string) {
     return null;
   }
   return trimmed;
+}
+
+function optionalText(value: string | undefined) {
+  return value?.trim() || undefined;
+}
+
+async function findPlayerDeleteBlocker(
+  ctx: MutationCtx,
+  player: Doc<"players">
+) {
+  const sessionPlayer = await ctx.db
+    .query("sessionPlayers")
+    .withIndex("by_playerId", (q) => q.eq("playerId", player._id))
+    .first();
+  if (sessionPlayer) {
+    return "sessions";
+  }
+
+  const tournamentEntrantAsPlayer1 = await ctx.db
+    .query("tournamentEntrants")
+    .withIndex("by_player1Id", (q) => q.eq("player1Id", player._id))
+    .first();
+  if (tournamentEntrantAsPlayer1) {
+    return "tournament entrants";
+  }
+
+  const tournamentEntrantAsPlayer2 = await ctx.db
+    .query("tournamentEntrants")
+    .withIndex("by_player2Id", (q) => q.eq("player2Id", player._id))
+    .first();
+  if (tournamentEntrantAsPlayer2) {
+    return "tournament entrants";
+  }
+
+  for await (const match of ctx.db
+    .query("matchHistory")
+    .withIndex("by_tenant", (q) => q.eq("tenantId", player.tenantId))) {
+    if (match.players.some((playerId) => playerId === player._id)) {
+      return "match history";
+    }
+  }
+
+  const statsSnapshot = await ctx.db
+    .query("statsSnapshots")
+    .withIndex("by_player", (q) => q.eq("playerId", player._id))
+    .first();
+  if (statsSnapshot) {
+    return "stats";
+  }
+
+  return null;
 }
 
 /**
@@ -258,12 +310,12 @@ export const createPlayer = mutation({
       skillSource: args.skillSource,
       manualSkillLevel: args.manualSkillLevel,
       duprRating: args.duprRating,
-      username: args.username?.trim() || undefined,
+      username: optionalText(args.username),
       email,
       phone,
-      gender: args.gender,
-      avatarUrl: args.avatarUrl,
-      notes: args.notes,
+      gender: optionalText(args.gender),
+      avatarUrl: optionalText(args.avatarUrl),
+      notes: optionalText(args.notes),
       optIn: args.optIn,
       createdAt: Date.now(),
     });
@@ -274,12 +326,13 @@ export const createPlayer = mutation({
 
 export const updatePlayer = mutation({
   args: {
+    tenantId: v.id("tenants"),
     playerId: v.id("players"),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     skillSource: v.optional(v.union(v.literal("manual"), v.literal("dupr"))),
     manualSkillLevel: v.optional(skillLevelValidator),
-    duprRating: v.optional(v.float64()),
+    duprRating: v.optional(v.union(v.float64(), v.null())),
     username: v.optional(v.string()),
     email: v.optional(v.string()),
     phone: v.optional(v.string()),
@@ -292,6 +345,9 @@ export const updatePlayer = mutation({
     const player = await ctx.db.get(args.playerId);
     if (!player) {
       return { success: false, error: "Player not found." };
+    }
+    if (player.tenantId !== args.tenantId) {
+      return { success: false, error: "Player workspace mismatch." };
     }
 
     const patch: Partial<Doc<"players">> = {};
@@ -308,11 +364,11 @@ export const updatePlayer = mutation({
     }
     if (args.skillSource !== undefined) patch.skillSource = args.skillSource;
     if (args.manualSkillLevel !== undefined) patch.manualSkillLevel = args.manualSkillLevel;
-    if (args.duprRating !== undefined) patch.duprRating = args.duprRating;
-    if (args.username !== undefined) patch.username = args.username.trim() || undefined;
-    if (args.gender !== undefined) patch.gender = args.gender;
-    if (args.avatarUrl !== undefined) patch.avatarUrl = args.avatarUrl;
-    if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.duprRating !== undefined) patch.duprRating = args.duprRating ?? undefined;
+    if (args.username !== undefined) patch.username = optionalText(args.username);
+    if (args.gender !== undefined) patch.gender = optionalText(args.gender);
+    if (args.avatarUrl !== undefined) patch.avatarUrl = optionalText(args.avatarUrl);
+    if (args.notes !== undefined) patch.notes = optionalText(args.notes);
     if (args.optIn !== undefined) patch.optIn = args.optIn;
 
     if (args.email !== undefined) {
@@ -353,11 +409,18 @@ export const updatePlayer = mutation({
 });
 
 export const deletePlayer = mutation({
-  args: { playerId: v.id("players") },
+  args: { tenantId: v.id("tenants"), playerId: v.id("players") },
   handler: async (ctx, args) => {
     const player = await ctx.db.get(args.playerId);
     if (!player) {
       return { success: false, error: "Player not found." };
+    }
+    if (player.tenantId !== args.tenantId) {
+      return { success: false, error: "Player workspace mismatch." };
+    }
+    const blocker = await findPlayerDeleteBlocker(ctx, player);
+    if (blocker) {
+      return { success: false, error: `Cannot delete player with existing ${blocker}.` };
     }
     await ctx.db.delete(args.playerId);
     return { success: true };

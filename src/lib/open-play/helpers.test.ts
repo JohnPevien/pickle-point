@@ -8,6 +8,7 @@ import {
   canSwapMatchPlayers,
   formatMatchingMode,
   formatQueueLabel,
+  formatRotationStats,
   formatSessionStatus,
   getActivePlayerIds,
   getEligibleSubstitutes,
@@ -43,6 +44,35 @@ describe("open play helpers", () => {
     ]);
 
     expect(sorted.map((player) => player.playerDetails?.firstName)).toEqual(["First", "Second", "In"]);
+  });
+
+  test("sorts sitting-out players by rotation priority", () => {
+    const sorted = sortSessionPlayers([
+      {
+        status: "sitting_out",
+        checkedInAt: 1,
+        consecutiveSitOuts: 1,
+        sitOutCount: 3,
+        lastPlayedAt: 100,
+        playerDetails: { firstName: "One", lastName: "Sit" },
+      },
+      {
+        status: "sitting_out",
+        checkedInAt: 2,
+        consecutiveSitOuts: 2,
+        sitOutCount: 2,
+        lastPlayedAt: 200,
+        playerDetails: { firstName: "Two", lastName: "Sit" },
+      },
+      {
+        status: "queued",
+        queuePosition: 1,
+        checkedInAt: 3,
+        playerDetails: { firstName: "Queued", lastName: "Player" },
+      },
+    ]);
+
+    expect(sorted.map((player) => player.playerDetails?.firstName)).toEqual(["Two", "One", "Queued"]);
   });
 
   test("parses session dates and scores before mutations", () => {
@@ -128,11 +158,25 @@ describe("open play helpers", () => {
   });
 
   test("formatQueueLabel returns correct labels for all non-queued statuses", () => {
-    expect(formatQueueLabel({ status: "sitting_out", checkedInAt: 0 })).toBe("Sitting out");
+    expect(formatQueueLabel({ status: "sitting_out", checkedInAt: 0 })).toBe("Sitting out - priority next");
+    expect(formatQueueLabel({ status: "paused", checkedInAt: 0 })).toBe("Paused");
     expect(formatQueueLabel({ status: "playing", checkedInAt: 0 })).toBe("Playing");
     expect(formatQueueLabel({ status: "left", checkedInAt: 0 })).toBe("Left");
     expect(formatQueueLabel({ status: "checked_in", checkedInAt: 0 })).toBe("Checked in");
     expect(formatQueueLabel({ status: "warming_up", checkedInAt: 0 })).toBe("Waiting…");
+  });
+
+  test("formatRotationStats summarizes fairness metadata", () => {
+    expect(formatRotationStats({ status: "queued", checkedInAt: 0 })).toBe("0 matches | 0 sit-outs");
+    expect(
+      formatRotationStats({
+        status: "sitting_out",
+        checkedInAt: 0,
+        matchesPlayed: 1,
+        sitOutCount: 2,
+        consecutiveSitOuts: 2,
+      })
+    ).toBe("1 match | 2 sit-outs | 2 straight");
   });
 
   test("getActivePlayerIds collects all player IDs from active matches", () => {

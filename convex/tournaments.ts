@@ -86,6 +86,8 @@ export const getRegisteredTeams = query({
           id: entrant._id,
           name: entrant.name,
           skillTier: entrant.skillTier,
+          seed: entrant.seed,
+          createdAt: entrant.createdAt,
           players: [
             p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
             p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
@@ -102,6 +104,9 @@ type SourceOutcome = NonNullable<Doc<"tournamentMatches">["entrant1SourceOutcome
 type TournamentMatchInsert = Omit<Doc<"tournamentMatches">, "_id" | "_creationTime">;
 type MatchOrderRef = { value: number };
 type MatchNode = { id: Id<"tournamentMatches"> };
+type ScoreValidation =
+  | { success: true; winnerId: Id<"tournamentEntrants"> }
+  | { success: false; error: string };
 
 function nextPowerOfTwo(value: number) {
   let power = 1;
@@ -128,6 +133,30 @@ function groupEntrantsByTier(entrants: Doc<"tournamentEntrants">[]) {
     acc[tier].push(entrant);
     return acc;
   }, {} as Partial<Record<SkillTier, Doc<"tournamentEntrants">[]>>);
+}
+
+function validateScores(
+  match: Doc<"tournamentMatches">,
+  score1: number,
+  score2: number
+): ScoreValidation {
+  if (!match.entrant1Id || !match.entrant2Id) {
+    return { success: false, error: "Tournament match must have two entrants before scoring." };
+  }
+  if (score1 < 0 || score2 < 0) {
+    return { success: false, error: "Scores cannot be negative." };
+  }
+  if (!Number.isInteger(score1) || !Number.isInteger(score2)) {
+    return { success: false, error: "Scores must be whole numbers." };
+  }
+  if (score1 === score2) {
+    return { success: false, error: "Tied scores are not supported." };
+  }
+
+  return {
+    success: true,
+    winnerId: score1 > score2 ? match.entrant1Id : match.entrant2Id,
+  };
 }
 
 function createMatchData(args: {
@@ -574,6 +603,10 @@ async function advanceFromMatch(
     .collect();
 
   for (const downstream of downstreamMatches) {
+    if (downstream.status === "completed") {
+      continue;
+    }
+
     const patch: Partial<Doc<"tournamentMatches">> = {};
     if (
       downstream.entrant1SourceMatchId === completedMatch._id &&
@@ -606,6 +639,88 @@ async function advanceFromMatch(
       downstream.entrant2SourceMatchId === completedMatch._id
     ) {
       await maybeAutoAdvanceMatch(ctx, downstream._id);
+    }
+  }
+}
+
+function getDependentMatches(
+  allMatches: Doc<"tournamentMatches">[],
+  completedMatch: Doc<"tournamentMatches">
+) {
+  const bySource = new Map<Id<"tournamentMatches">, Doc<"tournamentMatches">[]>();
+  for (const match of allMatches) {
+    for (const sourceId of sourceMatchIds(match)) {
+      const current = bySource.get(sourceId) ?? [];
+      current.push(match);
+      bySource.set(sourceId, current);
+    }
+  }
+
+  const dependents: Doc<"tournamentMatches">[] = [];
+  const visited = new Set<Id<"tournamentMatches">>();
+  const queue = [...(bySource.get(completedMatch._id) ?? [])];
+
+  if (completedMatch.bracketStage === "grand_final" && !completedMatch.isIfNecessary) {
+    queue.push(
+      ...allMatches.filter(
+        (match) => match.bracketStage === "grand_final" && match.isIfNecessary
+      )
+    );
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const next = queue[head++];
+    if (visited.has(next._id)) {
+      continue;
+    }
+    visited.add(next._id);
+    dependents.push(next);
+    queue.push(...(bySource.get(next._id) ?? []));
+  }
+
+  return dependents;
+}
+
+async function findCompletedDependentMatch(
+  ctx: MutationCtx,
+  completedMatch: Doc<"tournamentMatches">
+) {
+  const allMatches = await ctx.db
+    .query("tournamentMatches")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", completedMatch.tournamentId))
+    .collect();
+
+  return getDependentMatches(allMatches, completedMatch).find(
+    (match) => match.status === "completed"
+  );
+}
+
+async function removePendingResetFinalIfInvalid(
+  ctx: MutationCtx,
+  completedMatch: Doc<"tournamentMatches">
+) {
+  if (
+    completedMatch.bracketStage !== "grand_final" ||
+    completedMatch.isIfNecessary ||
+    !completedMatch.entrant1Id ||
+    completedMatch.winnerId !== completedMatch.entrant1Id
+  ) {
+    return;
+  }
+
+  const tournamentMatches = await ctx.db
+    .query("tournamentMatches")
+    .withIndex("by_tournament", (q) => q.eq("tournamentId", completedMatch.tournamentId))
+    .collect();
+
+  for (const match of tournamentMatches) {
+    if (
+      match.bracketStage === "grand_final" &&
+      match.isIfNecessary &&
+      match.status === "pending"
+    ) {
+      await ctx.db.delete(match._id);
     }
   }
 }
@@ -785,6 +900,63 @@ export const updateTournamentStatus = mutation({
   },
 });
 
+export const updateTeamSeed = mutation({
+  args: {
+    tenantId: v.id("tenants"),
+    tournamentId: v.id("tournaments"),
+    entrantId: v.id("tournamentEntrants"),
+    seed: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) {
+      return { success: false, error: "Tournament not found." };
+    }
+    if (tournament.tenantId !== args.tenantId) {
+      return { success: false, error: "Tournament workspace mismatch." };
+    }
+    if (
+      tournament.status !== "draft" &&
+      tournament.status !== "registration_open" &&
+      tournament.status !== "registration_closed"
+    ) {
+      return { success: false, error: "Seeds can only be edited before bracket generation." };
+    }
+
+    const entrant = await ctx.db.get(args.entrantId);
+    if (!entrant || entrant.tournamentId !== args.tournamentId) {
+      return { success: false, error: "Team not found in this tournament." };
+    }
+
+    if (args.seed !== null) {
+      if (!Number.isInteger(args.seed) || args.seed <= 0) {
+        return { success: false, error: "Seeds must be positive whole numbers." };
+      }
+
+      const tournamentEntrants = await ctx.db
+        .query("tournamentEntrants")
+        .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
+        .collect();
+
+      const duplicate = tournamentEntrants.find(
+        (candidate) =>
+          candidate._id !== args.entrantId &&
+          candidate.skillTier === entrant.skillTier &&
+          candidate.seed === args.seed
+      );
+      if (duplicate) {
+        return { success: false, error: `Seed ${args.seed} is already assigned in ${entrant.skillTier}.` };
+      }
+    }
+
+    await ctx.db.patch(args.entrantId, {
+      seed: args.seed ?? undefined,
+    });
+
+    return { success: true };
+  },
+});
+
 export const getTournamentBracket = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -905,6 +1077,7 @@ export const getTournamentView = query({
           name: entrant.name,
           skillTier: entrant.skillTier,
           seed: entrant.seed,
+          createdAt: entrant.createdAt,
           players: [
             p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
             p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
@@ -985,36 +1158,36 @@ export const recordTournamentScore = mutation({
     if (!tournament || tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
-    if (match.status === "completed") {
-      return { success: false, error: "Match is already completed." };
-    }
-    if (!match.entrant1Id || !match.entrant2Id) {
-      return { success: false, error: "Tournament match must have two entrants before scoring." };
-    }
-    if (args.score1 < 0 || args.score2 < 0) {
-      return { success: false, error: "Scores cannot be negative." };
-    }
-    if (!Number.isInteger(args.score1) || !Number.isInteger(args.score2)) {
-      return { success: false, error: "Scores must be whole numbers." };
-    }
-    if (args.score1 === args.score2) {
-      return { success: false, error: "Tied scores are not supported." };
+    const scoreValidation = validateScores(match, args.score1, args.score2);
+    if (!scoreValidation.success) {
+      return scoreValidation;
     }
 
-    const winnerId = args.score1 > args.score2 ? match.entrant1Id : match.entrant2Id;
+    if (match.status === "completed") {
+      const completedDependent = await findCompletedDependentMatch(ctx, match);
+      if (completedDependent) {
+        return {
+          success: false,
+          error:
+            "Score correction would invalidate completed downstream results. Clear downstream results before correcting this match.",
+        };
+      }
+    }
+
     await ctx.db.patch(args.matchId, {
       score1: args.score1,
       score2: args.score2,
       status: "completed",
-      winnerId,
+      winnerId: scoreValidation.winnerId,
     });
 
     const completedMatch = await ctx.db.get(args.matchId);
     if (completedMatch) {
       await advanceFromMatch(ctx, completedMatch);
+      await removePendingResetFinalIfInvalid(ctx, completedMatch);
       await maybeCreateResetFinal(ctx, completedMatch);
     }
 
-    return { success: true, winnerId };
+    return { success: true, winnerId: scoreValidation.winnerId };
   },
 });
