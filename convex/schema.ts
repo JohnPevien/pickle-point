@@ -79,7 +79,9 @@ export default defineSchema({
       v.literal("skill_courts")
     ),
     createdAt: v.number(),
-  }).index("by_tenant", ["tenantId"]),
+  })
+    .index("by_tenant", ["tenantId"])
+    .index("by_venueId", ["venueId"]),
 
   // 6. Session Players (Queue & Check-in tracking)
   sessionPlayers: defineTable({
