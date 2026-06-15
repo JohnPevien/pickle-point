@@ -1,0 +1,63 @@
+---
+title: Tournaments
+description: Fixed doubles tournament scope for MVP.
+---
+
+## MVP Entrants
+
+Tournaments use fixed doubles teams.
+
+Each team contains two registered player records. Team composition is set before bracket generation.
+
+Guest and walk-in player records are valid tournament entrants. Player login accounts are not required to join an MVP tournament.
+
+## Formats
+
+- Single elimination.
+- Double elimination.
+- Round robin.
+
+## Lifecycle
+
+- Draft.
+- Registration Open.
+- Registration Closed.
+- Bracket Generated.
+- Live.
+- Completed.
+- Cancelled.
+
+## Seeding
+
+Seeds are edited by the Game Master before bracket generation.
+
+Rules:
+
+- Seeds must be positive integers.
+- Seeds are unique within each skill tier.
+- Blank seeds are allowed.
+- Generated brackets order teams by seed first, then registration order.
+
+## Bracket Advancement And Corrections
+
+Single-elimination brackets advance winners through dependent matches.
+
+Double-elimination brackets generate winners, losers, and grand-final stages. If the losers-side finalist beats the winners-side finalist in the grand final, the app creates an if-necessary reset final.
+
+Round robin generates all pairings within each active skill tier.
+
+Score corrections are allowed when downstream dependent matches are still pending. Corrections recompute downstream pending slots. Corrections are blocked when completed downstream matches depend on the old result.
+
+## Public Bracket
+
+The public bracket view is available at `/[tenant]/tournaments/[tournamentId]` and groups matches by skill tier, bracket stage, and round.
+
+## Bracket Library Decision
+
+`brackets-manager.js` and `brackets-viewer.js` are reference-only for MVP. The app stores tournament teams, matches, scores, and bracket status in Convex and renders the current admin and public bracket views from that data.
+
+## Deferred
+
+- Singles tournaments.
+- Random partner assignment.
+- Spin-the-wheel social pairings.

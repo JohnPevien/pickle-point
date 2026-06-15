@@ -1,0 +1,51 @@
+---
+title: Validation
+description: Required checks before considering work complete.
+---
+
+## Documentation Changes
+
+Run:
+
+```bash
+pnpm lint
+pnpm build
+```
+
+Acceptance:
+
+- `/docs` builds successfully.
+- `docs/meta.json` includes any new MDX pages.
+- No duplicate docs source exists outside root `docs/`.
+- `docs/README.md` stays useful for future AI agents.
+
+## Feature Changes
+
+Run:
+
+```bash
+pnpm test
+pnpm lint
+pnpm build
+```
+
+Acceptance:
+
+- New or changed backend behavior has Convex tests.
+- UI business logic has focused tests.
+- Existing route and helper tests still pass.
+- User-facing docs are updated.
+
+## Convex Changes
+
+Before editing Convex code:
+
+- Read `convex/_generated/ai/guidelines.md`.
+- Keep functions validated with `v`.
+- Use indexes instead of query filters where possible.
+- Keep auth decisions based on `ctx.auth.getUserIdentity()` and `identity.tokenIdentifier`.
+- Avoid unbounded arrays on parent documents for high-churn data.
+
+## Current Sync Risk
+
+ClickUp has stale open task statuses for some work that is already merged. Treat this as a project-management sync issue, not an implementation blocker.

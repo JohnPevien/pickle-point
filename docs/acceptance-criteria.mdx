@@ -1,0 +1,43 @@
+---
+title: Acceptance Criteria
+description: Completion criteria for Pickle Point MVP surfaces.
+---
+
+## Product
+
+- Game Masters can create or manage a workspace.
+- Game Masters can create venues with court counts.
+- Game Masters can manage player records with manual or DUPR skill data.
+- Guests and walk-ins can participate through accountless player records.
+- Player login accounts are not required for MVP participation.
+
+## Open Play
+
+- Game Masters can create open play sessions.
+- Players can be checked in from the directory or registered as guests.
+- The app can generate doubles matches for available empty courts.
+- Fair rotation prioritizes consecutive sit-outs, total sit-outs, last played time, then queue position.
+- Paused players are excluded from generation.
+- Game Masters can rename courts, swap players, substitute queued or sitting-out players, and cancel unscored matches.
+- Scores can be recorded and reflected in history, standings, and recent results.
+- Public player view shows courts, queue, sit-outs, standings, recent results, and a shareable live link or QR code.
+
+## Tournaments
+
+- Game Masters can create tournaments for fixed doubles teams.
+- Entrants use registered player records.
+- Supported formats are single elimination, double elimination, and round robin.
+- Seeds can be edited before bracket generation and are unique within a skill tier.
+- Bracket generation orders teams by seed first, then registration order.
+- Winners advance through bracket dependencies.
+- Double elimination supports a grand final and if-necessary reset final.
+- Score corrections recompute pending downstream slots and block unsafe corrections after completed downstream matches.
+- Public bracket view shows player-visible tournament state.
+
+## Technical
+
+- Convex is the backend source of truth.
+- WorkOS AuthKit protects Game Master admin routes.
+- Live admin and player views use Convex realtime data where needed.
+- Docs are served from root `docs/` through Fumadocs.
+- `pnpm test`, `pnpm lint`, and `pnpm build` pass before feature work is considered complete.

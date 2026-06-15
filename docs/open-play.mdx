@@ -1,0 +1,62 @@
+---
+title: Open Play
+description: Session lifecycle and operational flow.
+---
+
+## Session Statuses
+
+- Draft.
+- Check-in.
+- Live.
+- Completed.
+- Cancelled.
+
+## Session Types
+
+- Standard Open Play: flexible rotation-focused sessions for recurring club or venue play.
+- Ladder Play: competitive open play where winners move up and losing players or teams move down courts, pools, or standings over successive rounds.
+
+## Core Flow
+
+1. Game Master creates an open play session.
+2. Players are checked in from existing records or registered as accountless guest or walk-in records.
+3. The app manages queue state and generates court assignments.
+4. Game Master can adjust pending or in-progress matches.
+5. Scores and winners are recorded.
+6. Live player view updates with courts, queue, standings, and recent results.
+
+## Fair Rotation
+
+Open play match generation fills empty courts only and excludes players already in active matches.
+
+Available queued and sitting-out players are prioritized by:
+
+1. Consecutive sit-outs.
+2. Total sit-out count.
+3. Last played time.
+4. Queue position.
+
+Players selected for matches move to `playing`, increment `matchesPlayed`, clear consecutive sit-outs, and receive `lastPlayedAt`. Players left out of a generated round move to `sitting_out`, increment sit-out counters, and receive `lastSatOutAt`.
+
+Paused players are not selected. A player returning from `sitting_out` is appended to the back of the queue.
+
+## Manual Match Controls
+
+Allowed controls include:
+
+- Rename a court.
+- Swap players between teams.
+- Substitute a queued or sitting-out player into an active match.
+- Cancel an unscored match.
+
+The app blocks duplicate active assignments, outsider substitutions, and cancellation after scoring.
+
+## Live Player View
+
+- Current courts.
+- Up-next queue.
+- Sitting-out players.
+- Paused players.
+- Standings.
+- Recent results.
+- QR or shareable live link.

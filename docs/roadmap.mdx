@@ -1,0 +1,36 @@
+---
+title: Roadmap
+description: Current delivery state and remaining work.
+---
+
+## Current State
+
+The repo has merged implementation for:
+
+- Convex backend migration and removal of Turso/Drizzle from the target architecture.
+- WorkOS AuthKit integration and admin route protection.
+- Open play session creation, check-in, smart matching, live player view, QR sharing, score entry, fair rotation, and manual match adjustments.
+- Tournament creation, list/detail management, admin bracket control, public bracket view, live links, QR support, seeding, bracket advancement, and score correction.
+- Admin navigation across dashboard, open play, tournaments, players, venues, and workspace.
+- Workspace settings, venue management, and player directory admin screens.
+- Product and feature documentation in the browser docs app.
+
+## Next Product Work
+
+- Reconcile `PRD-NEW.md` checklist items that are stale after recent merged work.
+- Sync ClickUp statuses with repo reality, especially open tasks for already-merged QR, tournament UI, fair rotation, seeding, player identity, and admin navigation work.
+- Expand UI and auth test coverage for remaining high-risk admin flows.
+- Decide whether regenerate-only-empty-courts controls are still needed after fair rotation.
+- Continue polishing workspace bootstrap, venue setup, and player directory admin workflows from real usage.
+
+## Future Features
+
+- AI-assisted matching after a workspace has at least 10 completed sessions and 100 scored matches.
+- Player account claim/link flow.
+- Singles tournaments.
+- Random pairing and spin-the-wheel social play mode.
+- Production docs access decision: public, admin-only, or separate deployment.
+
+## Delivery Rule
+
+Every feature should update docs, tests, and ClickUp status together. If those disagree, the repo implementation and tests win until the planning tools are synced.

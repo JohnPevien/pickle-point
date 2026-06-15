@@ -1,0 +1,53 @@
+---
+title: Architecture
+description: High-level app architecture and source boundaries.
+---
+
+## Stack
+
+- Next.js App Router for admin, public player, auth, setup, and docs routes.
+- Convex for persistence, realtime subscriptions, queries, mutations, and auth identity lookup.
+- WorkOS AuthKit for Game Master authentication.
+- Fumadocs for browser-openable living documentation at `/docs`.
+- Vitest and `convex-test` for backend and business-logic coverage.
+
+## Route Surfaces
+
+- `/setup`: first-run workspace setup.
+- `/[tenant]/admin/dashboard`: Game Master dashboard.
+- `/[tenant]/admin/open-play`: Open play control surface.
+- `/[tenant]/admin/tournaments`: tournament list and creation.
+- `/[tenant]/admin/tournaments/[tournamentId]`: tournament control and score entry.
+- `/[tenant]/admin/players`: player directory CRUD.
+- `/[tenant]/admin/venues`: venue CRUD and court count management.
+- `/[tenant]/admin/workspace`: workspace profile settings.
+- `/[tenant]/open-play/[sessionId]`: public live open play view.
+- `/[tenant]/tournaments/[tournamentId]`: public live tournament bracket.
+- `/docs`: living product and technical documentation.
+
+## Data Flow
+
+Admin and public views read Convex queries through realtime subscriptions where live updates matter.
+
+Mutations own validation for:
+
+- Workspace and venue ownership.
+- Player directory changes.
+- Open play check-in, queue, matching, score entry, and manual adjustments.
+- Tournament setup, seeding, bracket generation, score entry, and correction.
+
+Public player views are read-oriented and should expose only the session or bracket data needed by participants and spectators.
+
+## Source Boundaries
+
+- `convex/` contains schema, query, mutation, and Convex tests.
+- `src/app/` contains route entrypoints and route-level auth gating.
+- `src/components/` contains admin, open-play, setup, form, provider, and UI components.
+- `src/lib/` contains shared helpers, validation, navigation, URL, and testable business logic.
+- `docs/` contains versioned living documentation and agent context.
+
+## Documentation Architecture
+
+Docs are flat MDX files in the root `docs/` directory. Add a folder only when a topic is likely to become a multi-page section.
+
+Fumadocs reads `docs/` via `source.config.ts`, and `docs/meta.json` defines the navigation order.

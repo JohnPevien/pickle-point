@@ -1,0 +1,28 @@
+---
+title: Authentication
+description: MVP auth direction and account-linking notes.
+---
+
+## Game Masters
+
+Game Masters need authenticated accounts for workspace and venue management.
+
+## Players
+
+Player login accounts are not required for MVP participation.
+
+Players are represented by registered player records first. Guest and walk-in player records can remain accountless while still joining open plays and tournaments.
+
+MVP player records are local to a Game Master workspace. Future login accounts may claim or link local records using username, email, and external auth identity fields, but MVP does not auto-merge player records across workspaces.
+
+## Provider Direction
+
+Pickle Point uses WorkOS AuthKit with Convex JWT validation for MVP Game Master authentication.
+
+AuthKit routes:
+
+- `/sign-in` starts hosted sign-in.
+- `/sign-up` starts hosted sign-up.
+- `/callback` handles the WorkOS OAuth callback.
+
+Admin tenant routes are protected with WorkOS `withAuth` before rendering. Convex receives WorkOS access tokens through a route-backed `ConvexProviderWithAuth` bridge, so backend functions can use `ctx.auth.getUserIdentity()` and map Game Masters by `identity.tokenIdentifier`.

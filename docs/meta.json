@@ -1,0 +1,20 @@
+{
+  "title": "Pickle Point Docs",
+  "pages": [
+    "index",
+    "product-overview",
+    "roadmap",
+    "decisions-log",
+    "changelog",
+    "acceptance-criteria",
+    "validation",
+    "task-contract",
+    "architecture",
+    "convex-data-model",
+    "auth",
+    "player-model",
+    "open-play",
+    "matching-logic",
+    "tournaments"
+  ]
+}

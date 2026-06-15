@@ -1,0 +1,69 @@
+---
+title: Decisions Log
+description: Canonical product and technical decisions made while scoping the MVP.
+---
+
+## Source Of Truth
+
+Repo implementation and tests are the highest-confidence source for current state. `PRD-NEW.md` is the planning source. ClickUp is delivery context and needs a follow-up sync where task status is stale.
+
+## Player Registration
+
+All participants must be registered as player records before they can join open play or tournaments.
+
+Guest and walk-in players are registered by the Game Master during open play check-in or tournament registration. A player login account is not required for MVP participation.
+
+## Player Identity
+
+MVP player identity is hybrid, with the local player record as the source of truth for participation. Player records belong to one Game Master workspace, and future login accounts may claim or link those local records.
+
+Future player accounts should carry username, email, and external auth identity fields. MVP does not auto-merge duplicate player records across Game Master workspaces.
+
+## Skill Data
+
+Every player must have either a DUPR rating or a manual skill level.
+
+Manual skill levels:
+
+- Beginner
+- Novice
+- Low Intermediate
+- High Intermediate
+- Advanced
+
+## Open Play Rotation
+
+Fair sit-out rotation is player-based. When generating matches, the app prioritizes players by:
+
+1. Consecutive sit-outs.
+2. Total sit-out count.
+3. Last played time.
+4. Queue position.
+
+Paused players are excluded. Returning from sitting out appends the player to the back of the queue.
+
+## Tournaments
+
+MVP tournaments use fixed doubles teams as entrants. Each team has two registered player records, including accountless guest or walk-in records when needed, and the team composition is set before bracket generation.
+
+Seeds are unique within each skill tier. Blank seeds stay ordered by registration time. Bracket generation orders entrants by seed first, then registration order.
+
+Single elimination, double elimination, and round robin are supported. Score corrections can recompute pending downstream matches, but completed downstream dependencies are protected.
+
+Singles tournaments are deferred.
+
+`brackets-manager.js` and `brackets-viewer.js` are reference material only for MVP. Pickle Point owns bracket state in Convex and can revisit library adoption after the in-house bracket workflow proves insufficient.
+
+## Random Pairings
+
+Random pairing and spin-the-wheel mode is a future social-event feature. It is separate from MVP tournament bracket generation.
+
+## Matching Intelligence
+
+MVP matching is rule-based first. AI matching is deferred until at least 10 completed sessions and 100 scored matches exist in a workspace.
+
+When revisiting AI-assisted matching, compare it against rule-based matching with repeat-partner rate, repeat-opponent rate, wait fairness, skill spread, and Game Master override rate.
+
+## Documentation
+
+Use Fumadocs for in-app living documentation at `/docs`. The docs source lives in the root `docs/` directory, with flat MDX files unless a future section clearly needs many pages.
