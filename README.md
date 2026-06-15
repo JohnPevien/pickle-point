@@ -85,7 +85,7 @@ Living documentation is available at [http://localhost:3000/docs](http://localho
 ```text
 pickle-point/
 ├── convex/               # Convex schema, queries, mutations, and generated types
-├── content/docs/         # Fumadocs MDX product and technical docs
+├── docs/                 # Fumadocs MDX product and technical docs
 ├── src/
 │   ├── app/              # Next.js App Router pages and routes
 │   ├── components/       # React components
