@@ -48,6 +48,8 @@ Public player views are read-oriented and should expose only the session or brac
 
 ## Documentation Architecture
 
-Docs are flat MDX files in the root `docs/` directory. Add a folder only when a topic is likely to become a multi-page section.
+Docs are flat MDX files in the root `docs/` directory by default. Add a folder only when a topic is likely to become a multi-page section.
+
+`docs/task-log/` is the first intentional multi-page section. It replaces ClickUp as the active task source of truth and preserves imported ClickUp links as provenance only.
 
 Fumadocs reads `docs/` via `source.config.ts`, and `docs/meta.json` defines the navigation order.

@@ -1,0 +1,38 @@
+---
+title: "PP-027: Create Repo Task Log And Retire ClickUp"
+description: Task-log migration that makes repo docs the task source of truth.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Create `docs/task-log/` as the versioned task source of truth, import ClickUp task provenance, update workflow docs, update the external Working Brief, and close migrated ClickUp tasks.
+
+## Acceptance Criteria
+
+- `docs/task-log/` contains an overview, nested navigation, and one page per task.
+- Root docs navigation includes the task log.
+- Existing workflow docs make this task log authoritative over ClickUp.
+- `docs/changelog.mdx` records the migration.
+- The Google Doc working brief includes the task log and changelog coordination rule.
+- All non-done Pickle Point ClickUp tasks are marked `done`.
+
+## Validation
+
+- `pnpm lint`: passed.
+- `pnpm build`: passed and generated `/docs/task-log` plus all per-task pages.
+- Google Docs connector readback confirmed the Working Brief update in `Agentic Coding Control System - Working Brief`.
+- ClickUp search confirmed the imported Pickle Point tasks now show `done`.
+
+## Source / Provenance
+
+- Source: user request on 2026-06-15.
+- ClickUp task: none.
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Adds a 2026-06-15 changelog entry because task tracking and external planning process changed.

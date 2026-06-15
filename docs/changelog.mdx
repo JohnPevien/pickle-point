@@ -5,6 +5,9 @@ description: Human-readable record of important Pickle Point changes.
 
 ## 2026-06-15
 
+- Added `docs/task-log/` as the versioned task source of truth, replacing ClickUp for active Pickle Point task tracking.
+- Imported Pickle Point ClickUp task provenance into per-task MDX pages and kept only the remaining test coverage work in progress.
+- Documented that the task log tracks execution state while the changelog tracks shipped or meaningful project changes.
 - Moved living documentation source to root `docs/`.
 - Flattened docs navigation into root-level MDX files.
 - Added architecture, roadmap, task contract, validation, changelog, and acceptance criteria docs.
@@ -22,4 +25,4 @@ description: Human-readable record of important Pickle Point changes.
 
 ## Sync Notes
 
-`PRD-NEW.md` and ClickUp contain stale unchecked items for some work that is now implemented in the repo. Future planning should update those sources after reviewing current code and tests.
+`PRD-NEW.md` still contains stale unchecked items for some work that is now implemented in the repo. Future planning should reconcile the PRD against current code, tests, docs, and `docs/task-log/`.

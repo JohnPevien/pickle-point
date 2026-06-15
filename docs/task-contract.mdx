@@ -7,6 +7,7 @@ description: Expectations for implementing future Pickle Point tasks.
 
 - Read `PRD-NEW.md` for product context.
 - Read `docs/README.md` for agent workflow.
+- Read `docs/task-log/` and the current task page before changing code or docs.
 - Read the relevant `docs/*.mdx` file before changing a feature.
 - For Convex code changes, read `convex/_generated/ai/guidelines.md` first.
 - Check `git status --short` and preserve unrelated user changes.
@@ -15,11 +16,14 @@ description: Expectations for implementing future Pickle Point tasks.
 
 - Keep changes scoped to the requested feature or doc update.
 - Prefer existing repo patterns over new abstractions.
+- Name task branches with exactly one allowed prefix: `feat/`, `minor/`, `chore/`, `fix/`, or `hotfix/`.
 - Keep Convex as the backend source of truth.
 - Do not reintroduce Turso, Drizzle, SQL migrations, or SQL-first server actions.
 - Do not require player login accounts for MVP participation.
 - Keep all open play and tournament participants backed by player records.
 - Update the living docs when product behavior, architecture, validation, or acceptance criteria changes.
+- Update `docs/task-log/` when task status, scope, acceptance criteria, validation evidence, or follow-up work changes.
+- Update `docs/changelog.mdx` only when shipped behavior, architecture, data model, dependency policy, validation policy, or accepted risk changes.
 
 ## Testing Contract
 
@@ -37,4 +41,4 @@ At the end of a task, report:
 - Behavior changed.
 - Tests or checks run.
 - Any known follow-up work.
-- Any ClickUp or PRD sync needed.
+- Any task log, changelog, or PRD sync needed.

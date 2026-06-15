@@ -1,0 +1,37 @@
+---
+title: "PP-007: Implement Manual Match Adjustment Controls"
+description: Completed manual match adjustment controls imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Implement Game Master controls for adjusting generated open play matches.
+
+## Acceptance Criteria
+
+- Game Masters can rename courts.
+- Game Masters can swap players where allowed.
+- Game Masters can substitute queued or sitting-out players before score entry.
+- Game Masters can cancel unscored matches.
+- Guardrails prevent invalid scored-match edits.
+
+## Validation
+
+- `src/components/admin/MatchAdjustPanel.tsx` and `src/components/admin/OpenPlayControlView.tsx` provide the UI.
+- `convex/openPlaySessions.test.ts` covers backend adjustment behavior.
+- Current docs describe the feature as merged.
+
+## Source / Provenance
+
+- ClickUp task: `86exty1pm`
+- ClickUp URL: https://app.clickup.com/t/86exty1pm
+- Imported ClickUp status: `Open`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Covered by the recent merged work entry for manual match adjustment.

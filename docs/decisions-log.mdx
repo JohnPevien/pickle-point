@@ -5,7 +5,7 @@ description: Canonical product and technical decisions made while scoping the MV
 
 ## Source Of Truth
 
-Repo implementation and tests are the highest-confidence source for current state. `PRD-NEW.md` is the planning source. ClickUp is delivery context and needs a follow-up sync where task status is stale.
+Repo implementation and tests are the highest-confidence source for current state. `docs/task-log/` is the active task source. `PRD-NEW.md` is planning context. Imported ClickUp status is historical provenance only.
 
 ## Player Registration
 
@@ -67,3 +67,5 @@ When revisiting AI-assisted matching, compare it against rule-based matching wit
 ## Documentation
 
 Use Fumadocs for in-app living documentation at `/docs`. The docs source lives in the root `docs/` directory, with flat MDX files unless a future section clearly needs many pages.
+
+Use `docs/task-log/` as the canonical task queue and status history. It works with `docs/changelog.mdx`: the task log tracks execution state and validation evidence, while the changelog tracks shipped or meaningful project changes.

@@ -1,0 +1,36 @@
+---
+title: "PP-009: Define And Implement Fair Sit Out Rotation"
+description: Completed fair sit-out rotation work imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Define and implement fair sit-out rotation for Open Play match generation.
+
+## Acceptance Criteria
+
+- Fairness is player-based.
+- Consecutive sit-outs, total sit-out count, last played time, and queue position are used.
+- Paused players are excluded.
+- Game Masters and players can see relevant sit-out state.
+
+## Validation
+
+- `docs/matching-logic.mdx` documents the fairness order.
+- Open play helpers and backend tests cover rotation behavior.
+- `src/components/open-play/LiveOpenPlayView.tsx` surfaces live state.
+
+## Source / Provenance
+
+- ClickUp task: `86exty1yn`
+- ClickUp URL: https://app.clickup.com/t/86exty1yn
+- Imported ClickUp status: `Open`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Covered by the recent merged work entry for Open Play fair rotation.

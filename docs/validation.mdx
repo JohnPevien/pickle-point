@@ -16,6 +16,7 @@ Acceptance:
 
 - `/docs` builds successfully.
 - `docs/meta.json` includes any new MDX pages.
+- `docs/task-log/` includes task status changes when work starts, completes, or creates follow-up tasks.
 - No duplicate docs source exists outside root `docs/`.
 - `docs/README.md` stays useful for future AI agents.
 
@@ -35,6 +36,7 @@ Acceptance:
 - UI business logic has focused tests.
 - Existing route and helper tests still pass.
 - User-facing docs are updated.
+- The relevant task log page is updated with validation evidence.
 
 ## Convex Changes
 
@@ -46,6 +48,6 @@ Before editing Convex code:
 - Keep auth decisions based on `ctx.auth.getUserIdentity()` and `identity.tokenIdentifier`.
 - Avoid unbounded arrays on parent documents for high-churn data.
 
-## Current Sync Risk
+## Task Sync
 
-ClickUp has stale open task statuses for some work that is already merged. Treat this as a project-management sync issue, not an implementation blocker.
+ClickUp is retired as the active task system. Use `docs/task-log/` for task status, follow-ups, acceptance criteria, and validation evidence.

@@ -1,0 +1,37 @@
+---
+title: "PP-023: Plan Convex Migration And Remove Turso Drizzle"
+description: Completed Convex migration planning imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Move the target backend architecture to Convex and retire Turso, Drizzle, SQL migrations, and SQL-first server actions.
+
+## Acceptance Criteria
+
+- Convex project setup exists.
+- Convex schema and function modules exist.
+- Turso and Drizzle are removed from the target architecture.
+- Realtime subscriptions replace polling where relevant.
+- Environment documentation reflects Convex and WorkOS AuthKit.
+
+## Validation
+
+- `convex/schema.ts` and Convex function modules exist.
+- `docs/architecture.mdx` and `docs/convex-data-model.mdx` document Convex as the backend.
+- Turso and Drizzle are absent from the target architecture.
+
+## Source / Provenance
+
+- ClickUp task: `86exgqbu4`
+- ClickUp URL: https://app.clickup.com/t/86exgqbu4
+- Imported ClickUp status: `done`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Captured in current docs and changelog entries for the Convex-backed architecture.

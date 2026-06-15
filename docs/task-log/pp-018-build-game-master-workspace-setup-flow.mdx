@@ -1,0 +1,35 @@
+---
+title: "PP-018: Build Game Master Workspace Setup Flow"
+description: Completed workspace setup flow imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Build the Game Master workspace setup and settings flow.
+
+## Acceptance Criteria
+
+- First-run workspace setup flow exists after auth sign-in.
+- Workspace owner mapping uses WorkOS/Convex user identity.
+- Workspace settings screen supports name, contact email, and branding-related fields.
+
+## Validation
+
+- `src/components/setup/WorkspaceSetupForm.tsx` implements setup.
+- `src/components/admin/WorkspaceSettingsForm.tsx` implements settings.
+- `convex/tenants.test.ts` and `convex/users.test.ts` cover workspace/user behavior.
+
+## Source / Provenance
+
+- ClickUp task: `86exty3ev`
+- ClickUp URL: https://app.clickup.com/t/86exty3ev
+- Imported ClickUp status: `Open`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Covered by current roadmap and docs state; no separate changelog entry required.

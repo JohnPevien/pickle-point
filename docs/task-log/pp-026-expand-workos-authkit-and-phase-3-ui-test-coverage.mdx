@@ -1,0 +1,39 @@
+---
+title: "PP-026: Expand WorkOS AuthKit And Phase 3 UI Test Coverage"
+description: Active test coverage follow-up imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Expand high-risk auth and Phase 3 UI test coverage that remains useful after the current implementation work.
+
+## Acceptance Criteria
+
+- WorkOS/AuthKit route tests cover auth routes and `authkitProxy` wiring beyond env validation and route constants.
+- UI components with non-trivial business logic gain focused tests.
+- New tests follow the existing Vitest patterns.
+- `pnpm test`, `pnpm lint`, and `pnpm build` pass after test changes.
+
+## Validation
+
+- Added proxy matcher and AuthKit proxy reuse coverage to `src/lib/auth/workos-routes.test.ts`.
+- Added refreshed-session missing user/token coverage to `src/lib/auth/workos-routes.test.ts`.
+- Added dashboard helper coverage in `src/lib/admin/dashboard.test.ts` for skill tier order, tier grouping, bracket lock/generation rules, action labels, and status display formatting.
+- `pnpm test`: passed, 201 tests across 14 files.
+- `pnpm lint`: passed.
+- `pnpm build`: passed and generated 54 docs/app pages.
+
+## Source / Provenance
+
+- ClickUp task: `86exty3nu`
+- ClickUp URL: https://app.clickup.com/t/86exty3nu
+- Imported ClickUp status: `Open`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+No changelog entry required unless the test work changes validation policy or uncovers behavior that must change.

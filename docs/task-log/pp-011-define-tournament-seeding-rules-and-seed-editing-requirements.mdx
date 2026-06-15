@@ -1,0 +1,36 @@
+---
+title: "PP-011: Define Tournament Seeding Rules And Seed Editing Requirements"
+description: Completed tournament seeding rules imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Define tournament seed ordering, validation, and Game Master seed editing requirements.
+
+## Acceptance Criteria
+
+- Seeds are unique within each skill tier.
+- Blank seeds remain ordered by registration time.
+- Bracket generation orders by seed first, then registration order.
+- Seed editing UI requirements are implemented.
+
+## Validation
+
+- `docs/tournaments.mdx` documents seeding.
+- `src/components/admin/TournamentControlView.tsx` exposes tournament controls.
+- `convex/tournaments.test.ts` covers seeding and bracket behavior.
+
+## Source / Provenance
+
+- ClickUp task: `86exty283`
+- ClickUp URL: https://app.clickup.com/t/86exty283
+- Imported ClickUp status: `Open`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Covered by the recent merged work entry for tournament seeding and corrections.

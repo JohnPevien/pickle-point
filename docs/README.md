@@ -12,10 +12,11 @@ This folder is the living documentation source for Pickle Point. Fumadocs serves
 Use this order when sources disagree:
 
 1. Current repo implementation and tests.
-2. `PRD-NEW.md`.
-3. ClickUp task status.
+2. `docs/task-log/`.
+3. `PRD-NEW.md`.
+4. Imported ClickUp task status.
 
-ClickUp currently has stale open tasks for some already-merged work, so verify against code and tests before treating a task as unfinished.
+ClickUp is retired as the active task system. Imported ClickUp links and statuses are provenance only; future task status belongs in `docs/task-log/`.
 
 ## How Docs Work
 
@@ -23,12 +24,14 @@ ClickUp currently has stale open tasks for some already-merged work, so verify a
 - Keep MDX files flat in `docs/` by default.
 - Add a subfolder only when a topic is expected to have many MDX pages.
 - Add every served MDX page to `docs/meta.json`.
+- Keep `docs/task-log/` as the canonical task queue and status history.
 - Keep `docs/decisions-log.mdx` as the canonical decision log.
 
 ## Updating Docs
 
 Update docs when changing:
 
+- Task status, scope, acceptance criteria, validation evidence, or follow-up work.
 - Product scope or roadmap.
 - Feature behavior.
 - Technical architecture.
@@ -36,6 +39,18 @@ Update docs when changing:
 - Validation rules or acceptance criteria.
 
 For Convex code changes, read `convex/_generated/ai/guidelines.md` before editing.
+
+## Branch Naming
+
+Task branches must use one of these prefixes:
+
+- `feat/`
+- `minor/`
+- `chore/`
+- `fix/`
+- `hotfix/`
+
+Do not create branches with other prefixes such as `task/`.
 
 ## Validation
 

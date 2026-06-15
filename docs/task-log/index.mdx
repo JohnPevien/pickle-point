@@ -1,0 +1,73 @@
+---
+title: Task Log
+description: Versioned Pickle Point task source of truth replacing ClickUp.
+---
+
+## Purpose
+
+This task log is the canonical execution queue for Pickle Point. It replaces ClickUp for active planning, status tracking, completion evidence, and future agent handoff.
+
+Use this log before starting work, during handoff, and when reconciling stale planning sources. ClickUp links are preserved only as migration provenance.
+
+## Source Of Truth
+
+Use this order when task status sources disagree:
+
+1. Current repo implementation and tests.
+2. This task log.
+3. `PRD-NEW.md`.
+4. Imported ClickUp task status.
+
+## Status Rules
+
+- `Pending`: accepted follow-up that is not started.
+- `In Progress`: current or partially complete work that still needs implementation, tests, docs, or validation.
+- `Done`: implemented, decided, documented, or intentionally retired.
+
+The task log tracks planning state, scope, acceptance criteria, validation, and completion evidence. `docs/changelog.mdx` tracks shipped or meaningful project changes. Link a completed task to the changelog only when user-facing behavior, architecture, data model, dependency policy, validation policy, or accepted risk changed.
+
+## In Progress
+
+No active tasks.
+
+## Pending
+
+- [PP-028: Decide regenerate-only-empty-courts controls](./pp-028-decide-regenerate-only-empty-courts-controls)
+- [PP-029: Decide production docs access model](./pp-029-decide-production-docs-access-model)
+
+## Done
+
+- [PP-001: Finalize product direction and MVP scope](./pp-001-finalize-product-direction-and-mvp-scope)
+- [PP-002: Define player model and identity rules](./pp-002-define-player-model-and-identity-rules)
+- [PP-003: Decide global/local/hybrid player identity model](./pp-003-decide-hybrid-player-identity-model)
+- [PP-004: Define future player account fields and claim/link flow](./pp-004-define-future-player-account-fields-and-claim-link-flow)
+- [PP-005: Specify open play session workflow](./pp-005-specify-open-play-session-workflow)
+- [PP-006: Define manual match adjustment rules](./pp-006-define-manual-match-adjustment-rules)
+- [PP-007: Implement manual match adjustment controls](./pp-007-implement-manual-match-adjustment-controls)
+- [PP-008: Add QR code generation for Open Play live links](./pp-008-add-qr-code-generation-for-open-play-live-links)
+- [PP-009: Define and implement fair sit-out rotation](./pp-009-define-and-implement-fair-sit-out-rotation)
+- [PP-010: Specify tournament workflow and bracket behavior](./pp-010-specify-tournament-workflow-and-bracket-behavior)
+- [PP-011: Define tournament seeding rules and seed editing requirements](./pp-011-define-tournament-seeding-rules-and-seed-editing-requirements)
+- [PP-012: Define bracket advancement and score-correction behavior](./pp-012-define-bracket-advancement-and-score-correction-behavior)
+- [PP-013: Build Game Master tournament bracket control and score entry UI](./pp-013-build-tournament-bracket-control-and-score-entry-ui)
+- [PP-014: Build public live tournament bracket view](./pp-014-build-public-live-tournament-bracket-view)
+- [PP-015: Add tournament live link and QR support](./pp-015-add-tournament-live-link-and-qr-support)
+- [PP-016: Evaluate brackets-manager.js and brackets-viewer.js](./pp-016-evaluate-brackets-manager-and-viewer)
+- [PP-017: Build tournament list/detail management and admin navigation](./pp-017-build-tournament-list-detail-management-and-admin-navigation)
+- [PP-018: Build Game Master workspace setup flow](./pp-018-build-game-master-workspace-setup-flow)
+- [PP-019: Build venue or club profile management](./pp-019-build-venue-or-club-profile-management)
+- [PP-020: Build player directory CRUD admin screen](./pp-020-build-player-directory-crud-admin-screen)
+- [PP-021: Resolve MVP open questions](./pp-021-resolve-mvp-open-questions)
+- [PP-022: Decide AI matching deferral criteria](./pp-022-decide-ai-matching-deferral-criteria)
+- [PP-023: Plan Convex migration and remove Turso/Drizzle](./pp-023-plan-convex-migration-and-remove-turso-drizzle)
+- [PP-024: Review archived prototype and keep only approved concepts](./pp-024-review-archived-prototype-and-keep-only-approved-concepts)
+- [PP-025: Validate cleanup and create implementation plan](./pp-025-validate-cleanup-and-create-implementation-plan)
+- [PP-026: Expand WorkOS/AuthKit and Phase 3 UI test coverage](./pp-026-expand-workos-authkit-and-phase-3-ui-test-coverage)
+- [PP-027: Create repo task log and retire ClickUp](./pp-027-create-repo-task-log-and-retire-clickup)
+
+## Migration Notes
+
+- Imported from ClickUp list `Pickle Point` (`901817919789`) on 2026-06-15.
+- ClickUp task URLs and imported statuses are preserved in each imported task page.
+- After this migration, all non-done Pickle Point ClickUp tasks are closed as `done`.
+- Future tasks should be created here first, not in ClickUp.

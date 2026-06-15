@@ -1,0 +1,36 @@
+---
+title: "PP-013: Build Tournament Bracket Control And Score Entry UI"
+description: Completed tournament bracket control UI imported from ClickUp.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Build Game Master tournament bracket control and score-entry UI.
+
+## Acceptance Criteria
+
+- Game Masters can view tournament bracket state.
+- Game Masters can enter match scores.
+- Game Masters can correct eligible scores.
+- Admin route exists for tournament control.
+
+## Validation
+
+- `src/components/admin/TournamentControlView.tsx` implements bracket control.
+- `src/app/[tenant]/admin/tournaments/[tournamentId]/page.tsx` serves the admin route.
+- Tournament helper and Convex tests cover the core behavior.
+
+## Source / Provenance
+
+- ClickUp task: `86exty2t4`
+- ClickUp URL: https://app.clickup.com/t/86exty2t4
+- Imported ClickUp status: `Open`
+- Imported date: 2026-06-15
+
+## Changelog Impact
+
+Covered by the recent merged work entry for tournament UI.
