@@ -117,6 +117,24 @@ describe("AuthKit page routes", () => {
 });
 
 describe("AuthKit proxy route", () => {
+  test("keeps the proxy matcher broad while excluding static Next assets", async () => {
+    const { config } = await import("../../proxy");
+
+    expect(config.matcher).toEqual(["/((?!_next/static|_next/image|favicon.ico).*)"]);
+  });
+
+  test("creates the AuthKit proxy once at module load and reuses it", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.proxyHandler.mockReturnValue(new Response("delegated", { status: 202 }));
+
+    const { default: proxy } = await import("../../proxy");
+    proxy(new Request("https://app.example.com/admin") as never, {} as never);
+    proxy(new Request("https://app.example.com/admin/players") as never, {} as never);
+
+    expect(authkitMocks.authkitProxy).toHaveBeenCalledTimes(1);
+    expect(authkitMocks.proxyHandler).toHaveBeenCalledTimes(2);
+  });
+
   test("bypasses WorkOS locally when the auth environment is incomplete", async () => {
     setWorkosEnv({ NODE_ENV: "development" });
 
@@ -214,6 +232,28 @@ describe("auth token route", () => {
     expect(authkitMocks.withAuth).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ accessToken: "fresh_token" });
+  });
+
+  test("returns 401 when a refreshed session is missing a user or access token", async () => {
+    authkitMocks.refreshSession.mockResolvedValueOnce({
+      user: null,
+      accessToken: "fresh_token",
+    });
+
+    const { GET } = await import("../../app/api/auth/token/route");
+    const missingUserResponse = await GET(new Request("https://app.example.com/api/auth/token?refresh=1"));
+
+    expect(missingUserResponse.status).toBe(401);
+    await expect(missingUserResponse.json()).resolves.toEqual({ accessToken: null });
+
+    authkitMocks.refreshSession.mockResolvedValueOnce({
+      user: { id: "user_123" },
+      accessToken: null,
+    });
+    const missingTokenResponse = await GET(new Request("https://app.example.com/api/auth/token?refresh=1"));
+
+    expect(missingTokenResponse.status).toBe(401);
+    await expect(missingTokenResponse.json()).resolves.toEqual({ accessToken: null });
   });
 
   test("returns 401 when the session is missing a user or access token", async () => {
