@@ -31,6 +31,7 @@
     "pp-027-create-repo-task-log-and-retire-clickup",
     "pp-028-decide-regenerate-only-empty-courts-controls",
     "pp-029-decide-production-docs-access-model",
-    "pp-030-build-product-landing-page"
+    "pp-030-build-product-landing-page",
+    "pp-031-add-git-hook-validation-checks"
   ]
 }

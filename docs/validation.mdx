@@ -38,6 +38,28 @@ Acceptance:
 - User-facing docs are updated.
 - The relevant task log page is updated with validation evidence.
 
+## Local Git Hooks
+
+Husky installs local Git hooks through the `prepare` script.
+
+Pre-commit runs:
+
+```bash
+pnpm check:commit
+```
+
+This currently runs `pnpm lint` so commits get fast feedback before they are created.
+
+Pre-push runs:
+
+```bash
+pnpm check:push
+```
+
+This currently runs `pnpm test`, `pnpm lint`, and `pnpm build` so pushed branches match the feature-change validation contract.
+
+These hooks are local developer guardrails. They do not replace manually running the relevant validation commands before marking a task done, and they do not replace CI when CI is added.
+
 ## Convex Changes
 
 Before editing Convex code:

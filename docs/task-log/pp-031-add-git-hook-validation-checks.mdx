@@ -1,0 +1,38 @@
+---
+title: "PP-031: Add Git Hook Validation Checks"
+description: Completed task to add local pre-commit and pre-push validation hooks.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Add local Git hooks so commits run fast validation and pushes run the full feature validation suite.
+
+## Acceptance Criteria
+
+- Husky is installed as the local Git hook manager.
+- `pnpm check:commit` runs the fast pre-commit validation command.
+- `pnpm check:push` runs the strict pre-push validation command.
+- `.husky/pre-commit` runs `pnpm check:commit`.
+- `.husky/pre-push` runs `pnpm check:push`.
+- `docs/validation.mdx` documents the hook behavior and keeps manual validation as the completion standard.
+
+## Validation
+
+- `pnpm check:commit`: passed; ran `pnpm lint`.
+- `pnpm check:push`: passed; ran 210 tests, `pnpm lint`, and `pnpm build`.
+- `sh .husky/pre-commit`: passed; ran `pnpm lint`.
+- `sh .husky/pre-push`: passed; ran 210 tests, `pnpm lint`, and `pnpm build`.
+
+## Source / Provenance
+
+- Source: user request on 2026-06-20.
+- ClickUp task: none.
+- Imported date: 2026-06-20
+
+## Changelog Impact
+
+Added a changelog entry because this changes the local development and validation workflow.
