@@ -32,7 +32,10 @@ export default async function SetupPage() {
     return redirect("/sign-in");
   }
 
-  const auth = await withAuth({ ensureSignedIn: true });
+  const auth = await withAuth();
+  if (!auth.user || !auth.accessToken) {
+    return redirect("/sign-in");
+  }
 
   let currentWorkspace: Awaited<ReturnType<typeof fetchQuery>> | null = null;
   try {

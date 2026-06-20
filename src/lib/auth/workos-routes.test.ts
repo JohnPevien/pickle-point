@@ -17,11 +17,48 @@ const authkitMocks = vi.hoisted(() => {
 });
 
 const navigationMocks = vi.hoisted(() => ({
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
   redirect: vi.fn((url: string) => ({ kind: "redirect", url })),
+}));
+
+const convexNextMocks = vi.hoisted(() => ({
+  fetchQuery: vi.fn(),
 }));
 
 vi.mock("@workos-inc/authkit-nextjs", () => authkitMocks);
 vi.mock("next/navigation", () => navigationMocks);
+vi.mock("convex/nextjs", () => convexNextMocks);
+vi.mock("react/jsx-dev-runtime", () => ({
+  Fragment: Symbol.for("react.fragment"),
+  jsxDEV: (_type: unknown, props: unknown) => ({ props }),
+}));
+vi.mock("react/jsx-runtime", () => ({
+  Fragment: Symbol.for("react.fragment"),
+  jsx: (_type: unknown, props: unknown) => ({ props }),
+  jsxs: (_type: unknown, props: unknown) => ({ props }),
+}));
+vi.mock("fumadocs-ui/layouts/docs", () => ({
+  DocsLayout: vi.fn(),
+}));
+vi.mock("@/lib/layout.shared", () => ({
+  baseOptions: vi.fn(() => ({ nav: { title: "Pickle Point" } })),
+}));
+vi.mock("@/lib/source", () => ({
+  source: {
+    getPageTree: vi.fn(() => ({ name: "docs-tree" })),
+  },
+}));
+vi.mock("@/components/admin/AdminShell", () => ({
+  AdminShell: vi.fn(() => null),
+}));
+vi.mock("@/components/admin/WorkspaceSettingsForm", () => ({
+  WorkspaceSettingsForm: vi.fn(() => null),
+}));
+vi.mock("@/components/setup/WorkspaceSetupForm", () => ({
+  WorkspaceSetupForm: vi.fn(() => null),
+}));
 
 const workosEnvKeys = [
   "NODE_ENV",
@@ -79,6 +116,11 @@ beforeEach(() => {
   authkitMocks.handleAuth.mockReturnValue(authkitMocks.callbackHandler);
   authkitMocks.refreshSession.mockReset();
   authkitMocks.withAuth.mockReset();
+  convexNextMocks.fetchQuery.mockReset();
+  navigationMocks.notFound.mockReset();
+  navigationMocks.notFound.mockImplementation(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  });
   navigationMocks.redirect.mockReset();
   navigationMocks.redirect.mockImplementation((url: string) => ({ kind: "redirect", url }));
 
@@ -172,6 +214,107 @@ describe("AuthKit proxy route", () => {
     expect(authkitMocks.proxyHandler).toHaveBeenCalledWith(request, event);
     expect(response.status).toBe(202);
     await expect(response.text()).resolves.toBe("delegated");
+  });
+});
+
+describe("docs access layout", () => {
+  test("forces dynamic rendering so docs auth runs per request", async () => {
+    const { dynamic } = await import("../../app/docs/layout");
+
+    expect(dynamic).toBe("force-dynamic");
+  });
+
+  test("requires a signed-in WorkOS session when production auth is configured", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: { id: "user_123" }, accessToken: "token_123" });
+
+    const { default: Layout } = await import("../../app/docs/layout");
+    await Layout({ children: "docs content" });
+
+    expect(authkitMocks.withAuth).toHaveBeenCalledTimes(1);
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith();
+    expect(navigationMocks.notFound).not.toHaveBeenCalled();
+  });
+
+  test("redirects docs visitors through the sign-in route without WorkOS PKCE writes in the layout", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: null });
+
+    const { default: Layout } = await import("../../app/docs/layout");
+    const result = await Layout({ children: "docs content" });
+
+    expect(result).toEqual({ kind: "redirect", url: "/sign-in" });
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith();
+    expect(navigationMocks.redirect).toHaveBeenCalledWith("/sign-in");
+  });
+
+  test("keeps docs available during local development without WorkOS configuration", async () => {
+    setWorkosEnv({ NODE_ENV: "development" });
+
+    const { default: Layout } = await import("../../app/docs/layout");
+    await Layout({ children: "docs content" });
+
+    expect(authkitMocks.withAuth).not.toHaveBeenCalled();
+    expect(navigationMocks.notFound).not.toHaveBeenCalled();
+  });
+
+  test("hides docs in production when WorkOS is not configured", async () => {
+    setWorkosEnv({ NODE_ENV: "production" });
+
+    const { default: Layout } = await import("../../app/docs/layout");
+
+    await expect(Layout({ children: "docs content" })).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(authkitMocks.withAuth).not.toHaveBeenCalled();
+    expect(navigationMocks.notFound).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("protected server component auth", () => {
+  test("redirects setup visitors through the sign-in route without ensureSignedIn", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: null });
+
+    const { default: SetupPage } = await import("../../app/setup/page");
+    const result = await SetupPage();
+
+    expect(result).toEqual({ kind: "redirect", url: "/sign-in" });
+    expect(authkitMocks.withAuth).toHaveBeenCalledTimes(1);
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith();
+    expect(convexNextMocks.fetchQuery).not.toHaveBeenCalled();
+  });
+
+  test("redirects tenant admin visitors through the sign-in route without ensureSignedIn", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: null });
+    convexNextMocks.fetchQuery.mockResolvedValueOnce({
+      _id: "tenant_123",
+      name: "Downtown Pickleball",
+    });
+
+    const { default: AdminLayout } = await import("../../app/[tenant]/admin/layout");
+    const result = await AdminLayout({
+      children: "admin content",
+      params: Promise.resolve({ tenant: "tenant_123" }),
+    });
+
+    expect(result).toEqual({ kind: "redirect", url: "/sign-in" });
+    expect(authkitMocks.withAuth).toHaveBeenCalledTimes(1);
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith();
+  });
+
+  test("redirects workspace settings visitors through the sign-in route without ensureSignedIn", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: null });
+
+    const { default: AdminWorkspacePage } = await import("../../app/[tenant]/admin/workspace/page");
+    const result = await AdminWorkspacePage({
+      params: Promise.resolve({ tenant: "tenant_123" }),
+    });
+
+    expect(result).toEqual({ kind: "redirect", url: "/sign-in" });
+    expect(authkitMocks.withAuth).toHaveBeenCalledTimes(1);
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith();
+    expect(convexNextMocks.fetchQuery).not.toHaveBeenCalled();
   });
 });
 
