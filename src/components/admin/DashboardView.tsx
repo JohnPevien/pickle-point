@@ -8,8 +8,13 @@ import { toast } from "sonner";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
-
-const TIERS = ["Beginner", "Novice", "Low Intermediate", "High Intermediate", "Advanced"] as const;
+import {
+  canGenerateDashboardBracket,
+  dashboardBracketActionLabel,
+  DASHBOARD_SKILL_TIERS,
+  formatDashboardStatus,
+  groupDashboardTeamsByTier,
+} from "@/lib/admin/dashboard";
 
 type Team = {
   id: string;
@@ -70,32 +75,30 @@ export function DashboardView({
     );
   }
 
-  const groupedTeams = teams.reduce((acc, t) => {
-    if (!acc[t.skillTier]) acc[t.skillTier] = [];
-    acc[t.skillTier].push(t);
-    return acc;
-  }, {} as Record<string, Team[]>);
+  const groupedTeams = groupDashboardTeamsByTier(teams);
+  const canGenerateBracket = canGenerateDashboardBracket(activeTournament.status, teams.length);
+  const bracketActionLabel = dashboardBracketActionLabel(activeTournament.status, isPending);
 
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">{activeTournament.name}</h2>
-          <p className="text-muted-foreground capitalize">Status: {activeTournament.status?.replace('_', ' ')}</p>
+          <p className="text-muted-foreground capitalize">Status: {formatDashboardStatus(activeTournament.status)}</p>
         </div>
         <div className="space-x-4">
            <Button 
              onClick={handleGenerateBracket} 
-             disabled={isPending || activeTournament.status === "bracket_generated" || activeTournament.status === "live" || teams.length < 2}
+             disabled={isPending || !canGenerateBracket}
              className="bg-[var(--tenant-primary)]"
            >
-             {isPending ? "Processing..." : (activeTournament.status === "bracket_generated" || activeTournament.status === "live") ? "Bracket Locked" : "Generate Bracket"}
+             {bracketActionLabel}
            </Button>
         </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {TIERS.map(tier => (
+        {DASHBOARD_SKILL_TIERS.map(tier => (
           <Card key={tier}>
             <CardHeader className="bg-muted/40">
               <CardTitle className="text-lg">{tier}</CardTitle>
