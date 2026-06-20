@@ -28,8 +28,8 @@ describe("dashboard helpers", () => {
   test("groups teams by skill tier without reordering teams inside each tier", () => {
     const grouped = groupDashboardTeamsByTier(teams);
 
-    expect(grouped.Novice.map((team) => team.name)).toEqual(["Dinks", "Drops"]);
-    expect(grouped.Advanced.map((team) => team.name)).toEqual(["Lobs"]);
+    expect(grouped.Novice!.map((team) => team.name)).toEqual(["Dinks", "Drops"]);
+    expect(grouped.Advanced!.map((team) => team.name)).toEqual(["Lobs"]);
     expect(grouped.Beginner).toBeUndefined();
   });
 

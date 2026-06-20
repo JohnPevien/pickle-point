@@ -13,9 +13,13 @@ export type DashboardTeamRow = {
 };
 
 export function groupDashboardTeamsByTier<T extends DashboardTeamRow>(teams: T[]) {
-  return teams.reduce<Record<string, T[]>>((acc, team) => {
-    if (!acc[team.skillTier]) acc[team.skillTier] = [];
-    acc[team.skillTier].push(team);
+  return teams.reduce<Partial<Record<string, T[]>>>((acc, team) => {
+    const existing = acc[team.skillTier];
+    if (existing) {
+      existing.push(team);
+    } else {
+      acc[team.skillTier] = [team];
+    }
     return acc;
   }, {});
 }
