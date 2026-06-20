@@ -74,6 +74,10 @@ export function formatMatchingMode(mode: string) {
   return matchingModeLabels.get(mode as MatchingMode) ?? titleize(mode);
 }
 
+export function formatGenerateMatchesActionLabel() {
+  return "Fill empty courts";
+}
+
 export function playerName(player: NamedPlayer) {
   if (!player) return "Unknown player";
   const name = [player.firstName, player.lastName]

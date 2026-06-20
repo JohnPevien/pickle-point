@@ -42,6 +42,8 @@ Fair sit-out rotation is player-based. When generating matches, the app prioriti
 
 Paused players are excluded. Returning from sitting out appends the player to the back of the queue.
 
+The Open Play generation action fills empty courts only. A separate regenerate-only-empty-courts control is not needed because preserving active courts is the default backend behavior, and the Game Master control labels the action as "Fill empty courts."
+
 ## Tournaments
 
 MVP tournaments use fixed doubles teams as entrants. Each team has two registered player records, including accountless guest or walk-in records when needed, and the team composition is set before bracket generation.
@@ -69,3 +71,5 @@ When revisiting AI-assisted matching, compare it against rule-based matching wit
 Use Fumadocs for in-app living documentation at `/docs`. The docs source lives in the root `docs/` directory, with flat MDX files unless a future section clearly needs many pages.
 
 Use `docs/task-log/` as the canonical task queue and status history. It works with `docs/changelog.mdx`: the task log tracks execution state and validation evidence, while the changelog tracks shipped or meaningful project changes.
+
+Production docs are admin-only behind WorkOS AuthKit. Local development can still view docs without a complete WorkOS environment so agents can work on documentation before auth secrets are configured.

@@ -1,11 +1,11 @@
 ---
 title: "PP-028: Decide Regenerate Only Empty Courts Controls"
-description: Pending roadmap decision for Open Play regeneration controls.
+description: Completed roadmap decision for Open Play regeneration controls.
 ---
 
 ## Status
 
-Pending
+Done
 
 ## Goal
 
@@ -13,15 +13,18 @@ Decide whether regenerate-only-empty-courts controls are still needed after fair
 
 ## Acceptance Criteria
 
-- Review current Open Play generation and manual adjustment behavior.
-- Decide whether the control is still useful, redundant, or harmful.
-- Document the decision in `docs/decisions-log.mdx` if it affects future implementation.
-- Add implementation work only if the decision says the control is still needed.
+- Current Open Play generation and manual adjustment behavior reviewed.
+- Decision made: a separate regenerate-only-empty-courts control is redundant.
+- `docs/decisions-log.mdx` documents the decision.
+- The Game Master control label now says "Fill empty courts" to make the existing behavior explicit.
 
 ## Validation
 
-- No validation run yet.
-- Future work should inspect current Open Play UI and backend generation tests before deciding.
+- Existing backend behavior already fills only empty courts and excludes players in active matches.
+- `pnpm test src/lib/open-play/helpers.test.ts`: passed, 20 tests.
+- `pnpm test`: passed, 206 tests across 14 files.
+- `pnpm lint`: passed.
+- `pnpm build`: passed.
 
 ## Source / Provenance
 
@@ -31,4 +34,4 @@ Decide whether regenerate-only-empty-courts controls are still needed after fair
 
 ## Changelog Impact
 
-Only add a changelog entry if the decision changes user-facing Open Play controls.
+Added a changelog entry because the Game Master control label changed.

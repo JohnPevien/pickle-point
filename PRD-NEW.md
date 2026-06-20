@@ -78,7 +78,7 @@ Phase 3 progress:
   - [x] Add backend mutation(s) for editing pending/in-progress session matches with tenant/session validation.
   - [x] Add UI controls for swapping players, substituting players, renaming courts, and cancelling unscored matches without losing queue state.
   - [x] Add validation and tests for duplicate players, missing players, active-player conflicts, and completed/scored-match restrictions.
-  - [ ] Add regenerate-only-empty-courts controls if needed after fair-rotation rules are finalized.
+  - [x] Do not add separate regenerate-only-empty-courts controls; match generation already fills empty courts only, and the Game Master action is labeled "Fill empty courts."
 - [ ] Fair sit-out rotation rules and controls.
   - [ ] Define fairness metric: wait count, last played time, consecutive sits, or queue position only.
   - [ ] Decide whether winners/losers returning to queue should affect sit-out priority.
@@ -423,7 +423,7 @@ Source: active ClickUp tasks in the Pickle Point list.
   - tournament workflow
   - Convex data model
   - authentication and account linking
-- Initial docs can be public in development. Decide later whether production docs should be hidden, admin-only, or deployed separately.
+- Initial docs can be public in development. Production docs are admin-only behind WorkOS AuthKit, while local development keeps the auth bypass when WorkOS is not configured.
 
 ## Convex Migration TODO
 

@@ -39,6 +39,7 @@ import {
   type SessionStatus,
   buildLiveSessionUrl,
   formatMatchingMode,
+  formatGenerateMatchesActionLabel,
   formatSessionStatus,
   formatQueueLabel,
   formatRotationStats,
@@ -534,7 +535,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                     className="bg-[var(--tenant-primary)]"
                   >
                     <Play />
-                    Generate matches
+                    {formatGenerateMatchesActionLabel()}
                   </Button>
                   <div className="grid gap-3 md:grid-cols-2">
                     {activeMatches.map((match) => (

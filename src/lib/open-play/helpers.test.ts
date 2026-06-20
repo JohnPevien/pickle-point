@@ -7,6 +7,7 @@ import {
   canSubstituteMatchPlayer,
   canSwapMatchPlayers,
   formatMatchingMode,
+  formatGenerateMatchesActionLabel,
   formatQueueLabel,
   formatRotationStats,
   formatSessionStatus,
@@ -25,6 +26,10 @@ describe("open play helpers", () => {
     expect(formatSessionStatus("check_in")).toBe("Check-in");
     expect(formatSessionStatus("custom_status")).toBe("Custom Status");
     expect(formatMatchingMode("auto_balanced")).toBe("Auto-balanced");
+  });
+
+  test("labels match generation as filling empty courts", () => {
+    expect(formatGenerateMatchesActionLabel()).toBe("Fill empty courts");
   });
 
   test("formats player and team names defensively", () => {

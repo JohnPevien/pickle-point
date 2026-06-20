@@ -23,7 +23,7 @@ description: High-level app architecture and source boundaries.
 - `/[tenant]/admin/workspace`: workspace profile settings.
 - `/[tenant]/open-play/[sessionId]`: public live open play view.
 - `/[tenant]/tournaments/[tournamentId]`: public live tournament bracket.
-- `/docs`: living product and technical documentation.
+- `/docs`: living product and technical documentation, protected by WorkOS AuthKit in production.
 
 ## Data Flow
 
@@ -53,3 +53,5 @@ Docs are flat MDX files in the root `docs/` directory by default. Add a folder o
 `docs/task-log/` is the first intentional multi-page section. It replaces ClickUp as the active task source of truth and preserves imported ClickUp links as provenance only.
 
 Fumadocs reads `docs/` via `source.config.ts`, and `docs/meta.json` defines the navigation order.
+
+The `/docs` route requires a signed-in WorkOS session when production auth is configured. Local development keeps the existing auth bypass when WorkOS environment variables are incomplete, matching the admin route development workflow.

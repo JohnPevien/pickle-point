@@ -1,11 +1,11 @@
 ---
 title: "PP-029: Decide Production Docs Access Model"
-description: Pending production documentation access decision.
+description: Completed production documentation access decision.
 ---
 
 ## Status
 
-Pending
+Done
 
 ## Goal
 
@@ -13,15 +13,17 @@ Decide whether production docs should be public, admin-only, or deployed separat
 
 ## Acceptance Criteria
 
-- Review the intended audience for production docs.
-- Choose public, admin-only, or separate deployment.
-- Document the chosen access model in `docs/decisions-log.mdx` and `docs/architecture.mdx`.
-- Add implementation work only if the decision requires route protection or deployment changes.
+- Intended audience reviewed: product and technical docs are for authenticated Game Masters and project operators, not anonymous production visitors.
+- Chosen access model: admin-only in production using WorkOS AuthKit.
+- `docs/decisions-log.mdx` and `docs/architecture.mdx` document the chosen access model.
+- `src/app/docs/layout.tsx` protects `/docs` in production and keeps the local development auth bypass when WorkOS is not configured.
 
 ## Validation
 
-- No validation run yet.
-- Future work should confirm the selected access model against Next.js route behavior before implementing.
+- `pnpm test src/lib/auth/workos-routes.test.ts`: passed, 19 tests.
+- `pnpm test`: passed, 206 tests across 14 files.
+- `pnpm lint`: passed.
+- `pnpm build`: passed and reports `/docs/[[...slug]]` as dynamic server-rendered output.
 
 ## Source / Provenance
 
@@ -31,4 +33,4 @@ Decide whether production docs should be public, admin-only, or deployed separat
 
 ## Changelog Impact
 
-Add a changelog entry if production routing, deployment, or access control changes.
+Added a changelog entry because production docs access control changed.
