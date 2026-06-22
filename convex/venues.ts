@@ -54,6 +54,9 @@ export const listByTenant = query({
   },
 });
 
+/**
+ * Creates a venue with a required name and positive court count for a tenant workspace.
+ */
 export const createVenue = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -89,6 +92,9 @@ export const createVenue = mutation({
   },
 });
 
+/**
+ * Updates editable venue fields after confirming the venue belongs to the tenant workspace.
+ */
 export const updateVenue = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -130,6 +136,9 @@ export const updateVenue = mutation({
   },
 });
 
+/**
+ * Deletes a venue when it belongs to the tenant and is not referenced by an open play session.
+ */
 export const deleteVenue = mutation({
   args: {
     tenantId: v.id("tenants"),

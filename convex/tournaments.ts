@@ -838,6 +838,9 @@ const TOURNAMENT_LIFECYCLE: Record<string, string[]> = {
   cancelled: [],
 };
 
+/**
+ * Creates a draft tournament for a tenant workspace.
+ */
 export const createTournament = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -869,6 +872,9 @@ export const createTournament = mutation({
   },
 });
 
+/**
+ * Moves a tournament through the allowed lifecycle transitions for its current status.
+ */
 export const updateTournamentStatus = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -900,6 +906,9 @@ export const updateTournamentStatus = mutation({
   },
 });
 
+/**
+ * Assigns, clears, and validates a team's seed within its tournament skill tier.
+ */
 export const updateTeamSeed = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -957,6 +966,9 @@ export const updateTeamSeed = mutation({
   },
 });
 
+/**
+ * Returns tournament bracket rounds enriched with entrant and winner names.
+ */
 export const getTournamentBracket = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
@@ -1050,6 +1062,9 @@ async function maybeCreateResetFinal(
   });
 }
 
+/**
+ * Gets the tenant-scoped tournament detail view, including teams, bracket rounds, and summary counts.
+ */
 export const getTournamentView = query({
   args: {
     tenantId: v.id("tenants"),
@@ -1142,6 +1157,9 @@ export const getTournamentView = query({
   },
 });
 
+/**
+ * Records a tournament match score, advances downstream entrants, and handles double-elimination finals.
+ */
 export const recordTournamentScore = mutation({
   args: {
     tenantId: v.id("tenants"),

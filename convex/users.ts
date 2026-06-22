@@ -1,6 +1,9 @@
 import { v } from "convex/values";
 import { query, internalMutation } from "./_generated/server";
 
+/**
+ * Resolves the authenticated Convex user record by token identifier.
+ */
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
@@ -15,6 +18,9 @@ export const getCurrentUser = query({
   },
 });
 
+/**
+ * Creates or refreshes a user record for an authenticated identity inside a tenant workspace.
+ */
 export const getOrCreateUser = internalMutation({
   args: {
     tokenIdentifier: v.string(),

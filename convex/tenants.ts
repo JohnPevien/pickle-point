@@ -116,6 +116,9 @@ export const getById = query({
   },
 });
 
+/**
+ * Gets the authenticated user's workspace and owner record.
+ */
 export const getCurrentWorkspace = query({
   args: {},
   handler: async (ctx) => {
@@ -138,6 +141,9 @@ export const getCurrentWorkspace = query({
   },
 });
 
+/**
+ * Creates a tenant workspace for the authenticated user, or returns their existing workspace.
+ */
 export const createWorkspace = mutation({
   args: workspaceFieldsValidator,
   handler: async (ctx, args) => {
@@ -188,6 +194,9 @@ export const createWorkspace = mutation({
   },
 });
 
+/**
+ * Updates workspace branding and contact fields for the authenticated workspace owner.
+ */
 export const updateWorkspace = mutation({
   args: {
     tenantId: v.id("tenants"),
