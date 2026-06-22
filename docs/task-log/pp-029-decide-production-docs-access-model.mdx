@@ -5,7 +5,7 @@ description: Pending production documentation access decision.
 
 ## Status
 
-Pending
+Done
 
 ## Goal
 
@@ -18,10 +18,14 @@ Decide whether production docs should be public, admin-only, or deployed separat
 - Document the chosen access model in `docs/decisions-log.mdx` and `docs/architecture.mdx`.
 - Add implementation work only if the decision requires route protection or deployment changes.
 
+## Decision
+
+Production docs are authenticated when WorkOS is configured and unavailable in production when WorkOS is incomplete. Local development may keep docs public when WorkOS is not configured.
+
 ## Validation
 
-- No validation run yet.
-- Future work should confirm the selected access model against Next.js route behavior before implementing.
+- `./node_modules/.bin/vitest run src/lib/docs/access.test.ts src/lib/auth/workos-routes.test.ts`: passed.
+- `./node_modules/.bin/next build --webpack`: passed after docs access changes.
 
 ## Source / Provenance
 

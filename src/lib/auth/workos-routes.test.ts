@@ -16,11 +16,22 @@ const authkitMocks = vi.hoisted(() => {
   };
 });
 
+const docsSearchMocks = vi.hoisted(() => {
+  const searchGet = vi.fn(() => Response.json({ ok: true }));
+
+  return {
+    searchGet,
+    createFromSource: vi.fn(() => ({ GET: searchGet })),
+  };
+});
+
 const navigationMocks = vi.hoisted(() => ({
   redirect: vi.fn((url: string) => ({ kind: "redirect", url })),
 }));
 
 vi.mock("@workos-inc/authkit-nextjs", () => authkitMocks);
+vi.mock("fumadocs-core/search/server", () => docsSearchMocks);
+vi.mock("@/lib/source", () => ({ source: {} }));
 vi.mock("next/navigation", () => navigationMocks);
 
 const workosEnvKeys = [
@@ -79,6 +90,10 @@ beforeEach(() => {
   authkitMocks.handleAuth.mockReturnValue(authkitMocks.callbackHandler);
   authkitMocks.refreshSession.mockReset();
   authkitMocks.withAuth.mockReset();
+  docsSearchMocks.searchGet.mockReset();
+  docsSearchMocks.searchGet.mockImplementation(() => Response.json({ ok: true }));
+  docsSearchMocks.createFromSource.mockReset();
+  docsSearchMocks.createFromSource.mockReturnValue({ GET: docsSearchMocks.searchGet });
   navigationMocks.redirect.mockReset();
   navigationMocks.redirect.mockImplementation((url: string) => ({ kind: "redirect", url }));
 
@@ -172,6 +187,34 @@ describe("AuthKit proxy route", () => {
     expect(authkitMocks.proxyHandler).toHaveBeenCalledWith(request, event);
     expect(response.status).toBe(202);
     await expect(response.text()).resolves.toBe("delegated");
+  });
+});
+
+describe("docs search access route", () => {
+  test("returns 404 in production when docs auth cannot be configured", async () => {
+    setWorkosEnv({ NODE_ENV: "production" });
+
+    const { GET } = await import("../../app/api/search/route");
+    const response = await GET(new Request("https://app.example.com/api/search?q=open"));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Docs are unavailable." });
+    expect(authkitMocks.withAuth).not.toHaveBeenCalled();
+    expect(docsSearchMocks.searchGet).not.toHaveBeenCalled();
+  });
+
+  test("requires WorkOS auth before serving production docs search", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: { id: "user_123" } });
+
+    const request = new Request("https://app.example.com/api/search?q=open");
+    const { GET } = await import("../../app/api/search/route");
+    const response = await GET(request);
+
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith({ ensureSignedIn: true });
+    expect(docsSearchMocks.searchGet).toHaveBeenCalledWith(request);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
   });
 });
 

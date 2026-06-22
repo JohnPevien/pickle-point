@@ -74,4 +74,6 @@ When revisiting AI-assisted matching, compare it against rule-based matching wit
 
 Use Fumadocs for in-app living documentation at `/docs`. The docs source lives in the root `docs/` directory, with flat MDX files unless a future section clearly needs many pages.
 
+Docs are public only for local development when WorkOS is not configured. In production with WorkOS configured, docs pages and docs search require a signed-in WorkOS session. In production without WorkOS configured, docs are unavailable.
+
 Use `docs/task-log/` as the canonical task queue and status history. It works with `docs/changelog.mdx`: the task log tracks execution state and validation evidence, while the changelog tracks shipped or meaningful project changes.
