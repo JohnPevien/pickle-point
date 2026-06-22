@@ -75,6 +75,9 @@ pnpm start
 
 # Run linting
 pnpm lint
+
+# Run tests
+pnpm test
 ```
 
 The app will be available at [http://localhost:3000](http://localhost:3000).
@@ -96,21 +99,21 @@ pickle-point/
 
 ## Current Features
 
-- White-label tenant routing with configurable theme colors.
-- Convex-backed doubles team registration.
-- WorkOS AuthKit session wiring for protected Game Master admin routes.
-- Game Master dashboard for viewing registered teams by skill tier.
-- Round-robin tournament bracket generation by skill tier.
+- White-label tenant routing with configurable workspace theme colors.
+- WorkOS AuthKit integration for protected Game Master admin routes.
+- First-run workspace setup and workspace settings.
+- Venue management with court counts used by Open Play generation.
+- Player directory management with manual skill and optional DUPR data.
+- Accountless guest and walk-in player records for MVP participation.
+- Open Play session creation, check-in, fair rotation, score entry, manual match adjustment, QR sharing, and public live views.
+- Tournament creation, fixed-doubles entrants, seed editing, single elimination, double elimination, round robin, score correction, QR sharing, and public bracket views.
 - Versioned in-repo product and technical documentation at `/docs`.
 
-## MVP Backlog
+## MVP Readiness
 
-The current product and cleanup backlog lives in `PRD-NEW.md`. Key next areas include:
+The canonical task queue lives in `docs/task-log/`. As of the MVP readiness pass, the remaining work is release polish: keeping docs in sync, validating the app, and recording any follow-up discovered during real Game Master usage.
 
-- Open play sessions, queue management, and live player views.
-- Tournament match result entry and bracket advancement.
-- Convex-backed realtime subscriptions for player and Game Master screens.
-- Auth identity mapping and account linking on top of WorkOS AuthKit.
+Future features are tracked in `docs/roadmap.mdx`, including AI-assisted matching, player account claim/link flow, singles tournaments, and random social pairing modes.
 
 ## Backend Notes
 
