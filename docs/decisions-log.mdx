@@ -42,6 +42,12 @@ Fair sit-out rotation is player-based. When generating matches, the app prioriti
 
 Paused players are excluded. Returning from sitting out appends the player to the back of the queue.
 
+## Open Play Regeneration Controls
+
+Do not add a separate regenerate-only-empty-courts control for MVP. The existing Generate Matches action already fills only unoccupied courts, excludes players already in active matches, and returns a clear success message when all courts are occupied.
+
+Adding a second control would duplicate existing behavior and make the Game Master surface harder to reason about. Revisit only if real session usage shows Game Masters need a separate preview, dry-run, or partial-regeneration workflow.
+
 ## Tournaments
 
 MVP tournaments use fixed doubles teams as entrants. Each team has two registered player records, including accountless guest or walk-in records when needed, and the team composition is set before bracket generation.

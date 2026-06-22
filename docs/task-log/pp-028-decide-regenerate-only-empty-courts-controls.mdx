@@ -5,7 +5,7 @@ description: Pending roadmap decision for Open Play regeneration controls.
 
 ## Status
 
-Pending
+Done
 
 ## Goal
 
@@ -20,8 +20,12 @@ Decide whether regenerate-only-empty-courts controls are still needed after fair
 
 ## Validation
 
-- No validation run yet.
-- Future work should inspect current Open Play UI and backend generation tests before deciding.
+- `./node_modules/.bin/vitest run convex/openPlaySessions.test.ts -t "fills only courts without active matches"`: passed.
+- Current backend behavior fills only unoccupied courts and excludes players already in active matches.
+
+## Decision
+
+No separate regenerate-only-empty-courts control is needed for MVP. The existing Generate Matches action already behaves as the proposed control.
 
 ## Source / Provenance
 
