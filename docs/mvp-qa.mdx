@@ -1,0 +1,76 @@
+---
+title: MVP QA
+description: Manual release-readiness checklist for Pickle Point MVP.
+---
+
+## Goal
+
+Use this checklist before declaring the MVP ready for real Game Master usage.
+
+## Environment
+
+- Start Convex with `pnpm exec convex dev`.
+- Start Next.js with `pnpm dev`.
+- Use WorkOS credentials for protected-route testing, or local auth bypass only for local development checks.
+
+## Root And Auth
+
+- Visit `/` and confirm the page says Pickle Point, not Create Next App.
+- Click Create workspace and confirm it routes to `/setup`.
+- Click Sign in and confirm it starts the WorkOS AuthKit flow when WorkOS is configured.
+- Confirm production without complete WorkOS config does not expose protected admin routes.
+
+## Workspace And Venue
+
+- Create a first workspace from `/setup`.
+- Confirm the workspace redirects to `/:tenant/admin/dashboard`.
+- Edit workspace name, contact email, and branding fields.
+- Create or edit a venue with a court count.
+- Confirm the venue court count is used by Open Play match generation.
+
+## Player Directory
+
+- Create a player with manual skill data.
+- Create or edit a player with optional DUPR data.
+- Confirm accountless guests and walk-ins can be represented as player records.
+- Search player records by name or contact data.
+
+## Open Play
+
+- Create an Open Play session.
+- Check in directory players.
+- Register a walk-in player during check-in.
+- Move the session to Live.
+- Generate matches and confirm only empty courts are filled.
+- Confirm fair rotation prioritizes sitting-out players.
+- Rename a court.
+- Swap players.
+- Substitute a queued or sitting-out player into a match.
+- Cancel an unscored match.
+- Record a score and confirm standings/recent results update.
+- Open the public live link and QR link and confirm courts, queue, sit-outs, standings, and recent results are visible.
+
+## Tournaments
+
+- Create a tournament.
+- Register fixed doubles teams.
+- Edit seeds before bracket generation.
+- Generate a single-elimination bracket.
+- Record scores and confirm winners advance.
+- Correct a score before unsafe downstream completion.
+- Repeat a smoke check for double elimination and round robin.
+- Open the public tournament bracket and confirm player-visible state renders.
+- Confirm tournament live link and QR support.
+
+## Documentation Access
+
+- In local development without WorkOS, confirm `/docs` is available.
+- In production with WorkOS configured, confirm `/docs` and `/api/search` require a signed-in session.
+- In production without WorkOS configured, confirm docs are unavailable.
+
+## Final Checks
+
+- Run `pnpm test`.
+- Run `pnpm lint`.
+- Run `pnpm build`.
+- If the local package-manager wrapper blocks scripts before they run, repeat with the direct local binaries and record the environment caveat in the task log.
