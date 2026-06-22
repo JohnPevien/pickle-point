@@ -6,6 +6,8 @@ description: Manual release-readiness checklist for Pickle Point MVP.
 ## Goal
 
 Use this checklist before declaring the MVP ready for real Game Master usage.
+Passing this page is a release gate, not proof that the MVP is already done.
+Record any release-blocking finding in `docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx` before closing PP-030.
 
 ## Environment
 
@@ -67,6 +69,28 @@ Use this checklist before declaring the MVP ready for real Game Master usage.
 - In local development without WorkOS, confirm `/docs` is available.
 - In production with WorkOS configured, confirm `/docs` and `/api/search` require a signed-in session.
 - In production without WorkOS configured, confirm docs are unavailable.
+
+## Mobile And Touch QA
+
+- Check `/`, `/setup`, admin dashboard, workspace, venue, players, Open Play admin, tournament admin, public Open Play, and public tournament routes at a narrow mobile viewport.
+- Confirm primary navigation, admin navigation, and mobile menu controls are reachable without horizontal scrolling.
+- Confirm touch targets for Create, Sign in, Generate Matches, score entry, match adjustment, QR/live-link actions, tournament registration, bracket generation, and score correction are large enough to tap reliably.
+- Confirm Open Play courts, queue, sit-outs, standings, and recent results remain readable on phone-sized screens.
+- Confirm tournament bracket and match cards remain readable on phone-sized screens.
+- Confirm public live views are usable without Game Master-only controls appearing.
+- Rotate a phone-sized viewport between portrait and landscape and confirm no critical controls are clipped.
+- Confirm QR codes and copied live links can be used from a mobile device.
+
+## Red Flags And Known Limitations
+
+Treat any item in this section as a release concern until it is resolved, accepted as a documented limitation, or moved into a follow-up task.
+
+- `pnpm test` must be re-run in a normal developer or CI environment before release if the local package-manager wrapper blocks scripts before tests execute.
+- Manual QA remains pending until PR-7 records coverage for root/auth, workspace setup, venue setup, player directory, Open Play, tournaments, public views, docs access, and mobile/touch checks.
+- Any auth bypass used for local development must not be counted as production WorkOS coverage.
+- Any missing or broken QR/live-link flow is release-blocking because player-visible public views are part of MVP scope.
+- Any score-entry, bracket-advancement, or Open Play match-generation regression is release-blocking until fixed or explicitly removed from MVP scope.
+- Account claiming/linking, cross-workspace player deduplication, singles tournaments, random pairing/spin-the-wheel play, and AI-assisted matching are known post-MVP limitations, not MVP blockers.
 
 ## Final Checks
 

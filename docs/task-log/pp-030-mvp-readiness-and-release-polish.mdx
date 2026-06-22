@@ -7,6 +7,8 @@ description: Final MVP readiness pass for root app polish, stale docs reconcilia
 
 In Progress
 
+PP-030 must remain In Progress until PR-7 records final validation and manual MVP QA evidence. Do not mark this task Done from documentation cleanup alone.
+
 ## Goal
 
 Bring Pickle Point to MVP-ready status by replacing scaffolded entry surfaces, closing PP-028 and PP-029, reconciling stale planning docs, adding an MVP QA checklist, and recording validation evidence.
@@ -26,11 +28,26 @@ Bring Pickle Point to MVP-ready status by replacing scaffolded entry surfaces, c
   - `./node_modules/.bin/vitest run`: passed, 201 tests.
   - `./node_modules/.bin/eslint`: passed.
   - `./node_modules/.bin/next build --webpack`: passed, 54 app/docs pages.
-  - `pnpm test`: blocked before tests by package-manager registry/install behavior in the restricted local environment.
+  - `pnpm test`: blocked before tests by package-manager registry/install behavior in the restricted local environment. This remains a release concern until the standard package-manager command is re-run successfully in CI or a normal networked developer environment, or the package-manager caveat is explicitly accepted for release.
 - PR-1 task-log navigation:
   - `./node_modules/.bin/next build --webpack`: passed, 55 app/docs pages.
 - `README.md`, `PRD-NEW.md`, and `docs/roadmap.mdx` reconciled against current repo implementation and task-log state.
 - `docs/mvp-qa.mdx` added as the manual release-readiness checklist.
+
+## Release Risks And Blockers
+
+- PR-7 final validation is still planned, so formal MVP readiness is not declared yet.
+- Manual QA has not yet been recorded for root/auth, workspace setup, venue setup, player directory, Open Play, tournaments, public views, docs access, and mobile/touch coverage.
+- The `pnpm test` wrapper caveat is unresolved for release until the normal command is verified outside the restricted local environment or documented as an accepted release limitation.
+- Any failed WorkOS production auth check, public live-link/QR check, score-entry check, match-generation check, or bracket-advancement check should block MVP release until fixed or explicitly descoped.
+- Mobile QA is now part of the MVP checklist and must be included in PR-7 evidence before this task can move to Done.
+
+## Known Gaps / Limitations
+
+- Player login account claim/link flows are deferred; MVP participation remains based on local player records managed by the Game Master.
+- Duplicate player records across Game Master workspaces are not auto-merged in MVP.
+- Singles tournaments, random pairing/spin-the-wheel social play, and AI-assisted matching are post-MVP features.
+- The current MVP readiness record is documentation and validation state only; it does not replace hands-on QA with real Game Master workflows.
 
 ## Source / Provenance
 
