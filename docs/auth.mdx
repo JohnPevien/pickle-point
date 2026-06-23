@@ -26,3 +26,9 @@ AuthKit routes:
 - `/callback` handles the WorkOS OAuth callback.
 
 Admin tenant routes are protected with WorkOS `withAuth` before rendering. Convex receives WorkOS access tokens through a route-backed `ConvexProviderWithAuth` bridge, so backend functions can use `ctx.auth.getUserIdentity()` and map Game Masters by `identity.tokenIdentifier`.
+
+## Email Verification
+
+MVP email verification is delegated to WorkOS AuthKit's hosted authentication flow. Pickle Point does not maintain custom OTP codes, resend cooldowns, verification email templates, or a custom login screen in the MVP app.
+
+Revisit custom verification only if Pickle Point later adopts self-managed authentication or player login accounts that require app-owned verification state.
