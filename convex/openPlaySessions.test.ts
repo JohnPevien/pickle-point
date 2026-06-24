@@ -545,6 +545,71 @@ describe("Open Play Sessions", () => {
       );
     });
 
+    test("generateMatches fills only courts without active matches", async () => {
+      const t = convexTest(schema, modules);
+      const { tenantId, sessionId, players } = await setupSessionWithPlayers(t, 8);
+
+      await t.run(async (ctx) => {
+        const venueId = await ctx.db.insert("venues", {
+          tenantId: tenantId as any,
+          name: "Two Court Club",
+          courtCount: 2,
+          createdAt: Date.now(),
+        });
+        await ctx.db.patch(sessionId as any, { venueId });
+        await ctx.db.insert("sessionMatches", {
+          sessionId: sessionId as any,
+          courtName: "Court 1",
+          team1: [players[0] as any, players[1] as any],
+          team2: [players[2] as any, players[3] as any],
+          status: "in_progress",
+          createdAt: Date.now(),
+        });
+
+        for (const playerId of players.slice(0, 4)) {
+          const sessionPlayer = await ctx.db
+            .query("sessionPlayers")
+            .withIndex("by_sessionId_and_playerId", (q) =>
+              q.eq("sessionId", sessionId as any).eq("playerId", playerId as any)
+            )
+            .unique();
+
+          if (!sessionPlayer) {
+            throw new Error("Expected checked-in player to have a session player row.");
+          }
+
+          await ctx.db.patch(sessionPlayer._id, {
+            status: "playing",
+            queuePosition: undefined,
+          });
+        }
+      });
+
+      const result = await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+
+      expect(result.success).toBe(true);
+      expect((result as any).matches).toHaveLength(1);
+
+      const liveMatches = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      expect(liveMatches).toHaveLength(2);
+
+      const generatedMatch = liveMatches.find((match) => match.courtName === "Court 2");
+      expect(generatedMatch).toBeDefined();
+
+      const generatedPlayerIds = new Set([
+        ...generatedMatch!.team1,
+        ...generatedMatch!.team2,
+      ].map(String));
+
+      for (const activePlayerId of players.slice(0, 4)) {
+        expect(generatedPlayerIds.has(String(activePlayerId))).toBe(false);
+      }
+    });
+
     test("generateMatches sets player status to 'playing'", async () => {
       const t = convexTest(schema, modules);
       const { sessionId } = await setupSessionWithPlayers(t, 4);
