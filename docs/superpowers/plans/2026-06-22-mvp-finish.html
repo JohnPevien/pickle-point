@@ -1,0 +1,1367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MVP Finish Implementation Plan | Pickle Point</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050706;
+      --paper: #0c1210;
+      --ink: #e8f3ed;
+      --muted: #9aad9f;
+      --line: #203329;
+      --accent: #86efac;
+      --accent-strong: #4ade80;
+      --accent-soft: rgba(74, 222, 128, .12);
+      --sidebar: #090d0b;
+      --inline-code-bg: #17231d;
+      --code-bg: #020617;
+      --code-ink: #e5e7eb;
+      --code-line: #1f2937;
+      --shadow: rgba(0, 0, 0, .38);
+      --warn: #fbbf24;
+      --warn-soft: rgba(251, 191, 36, .12);
+      --danger: #fb7185;
+      --danger-soft: rgba(251, 113, 133, .12);
+      --info: #67e8f9;
+      --info-soft: rgba(103, 232, 249, .1);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(74, 222, 128, .09), transparent 34rem),
+        linear-gradient(180deg, #07100b 0%, var(--bg) 38%);
+      color: var(--ink);
+      font: 16px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    .shell { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: var(--sidebar);
+      padding: 28px 22px;
+    }
+    aside h2 { margin: 0 0 12px; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+    aside a { display: block; padding: 6px 0; color: #c6d4ca; text-decoration: none; font-size: 14px; }
+    aside a:hover { color: var(--accent); }
+    .toc-level-3 { padding-left: 14px; color: var(--muted); }
+    main { min-width: 0; padding: 42px clamp(20px, 5vw, 76px) 80px; }
+    article { max-width: 980px; margin: 0 auto; background: linear-gradient(180deg, rgba(255,255,255,.035), transparent 18rem), var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: clamp(24px, 5vw, 56px); box-shadow: 0 20px 44px var(--shadow); }
+    .eyebrow { margin: 0 0 8px; color: var(--accent); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; font-size: 12px; }
+    .meta { margin: 0 0 34px; color: var(--muted); font-size: 14px; }
+    h1, h2, h3, h4, h5, h6 { line-height: 1.2; letter-spacing: -0.01em; }
+    h1 { margin: 0 0 18px; font-size: clamp(34px, 5vw, 56px); }
+    h2 { margin: 48px 0 14px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 28px; }
+    h3 { margin: 38px 0 12px; font-size: 22px; }
+    h4 { margin: 28px 0 10px; font-size: 18px; }
+    p { margin: 0 0 16px; }
+    ul, ol { padding-left: 1.35rem; margin: 0 0 18px; }
+    li { margin: 5px 0; }
+    hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 18px 0 24px; font-size: 14px; }
+    th, td { border: 1px solid var(--line); padding: 10px 12px; vertical-align: top; text-align: left; }
+    th { background: rgba(255, 255, 255, .04); color: var(--ink); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+    td { color: #d7e5dc; }
+    blockquote { margin: 22px 0; padding: 16px 18px; border-left: 4px solid var(--accent); background: var(--accent-soft); color: #d9fbe4; }
+    code { border-radius: 4px; background: var(--inline-code-bg); color: var(--ink); padding: 2px 5px; font: 0.92em ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    pre { margin: 18px 0 24px; overflow: auto; border-radius: 8px; background: var(--code-bg); color: var(--code-ink); padding: 18px; border: 1px solid var(--code-line); }
+    pre code { display: block; background: transparent; color: inherit; padding: 0; white-space: pre; }
+    .callout { margin: 18px 0 24px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.035); }
+    .callout strong { color: var(--accent); }
+    .callout.warn { border-color: rgba(251, 191, 36, .35); background: var(--warn-soft); }
+    .callout.info { border-color: rgba(103, 232, 249, .3); background: var(--info-soft); }
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 18px 0 24px; }
+    .status-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: rgba(255,255,255,.03); }
+    .status-card h4 { margin: 0 0 6px; font-size: 15px; }
+    .status-card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+    .pill.todo { background: var(--info-soft); color: var(--info); }
+    .pill.ready { background: var(--accent-soft); color: var(--accent); }
+    .pill.review { background: var(--warn-soft); color: var(--warn); }
+    .pill.blocked { background: var(--danger-soft); color: var(--danger); }
+    .feedback-entry { margin: 18px 0; border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: rgba(255,255,255,.03); }
+    .feedback-entry h4 { margin-top: 0; }
+    .append-zone { border: 1px dashed rgba(134, 239, 172, .5); border-radius: 8px; padding: 18px; background: rgba(74, 222, 128, .06); }
+    .task-box { display: inline-block; width: 1em; height: 1em; margin-right: .45em; border: 1.5px solid var(--muted); border-radius: 3px; vertical-align: -0.15em; background: #0a0f0d; }
+    .task-box.checked { background: var(--accent-strong); border-color: var(--accent-strong); box-shadow: inset 0 0 0 3px #0a0f0d; }
+    @media (max-width: 980px) {
+      .shell { display: block; }
+      aside { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      main { padding: 20px; }
+      article { border-radius: 0; }
+    }
+    @media print {
+      body { background: #fff; }
+      .shell { display: block; }
+      aside { display: none; }
+      main, article { padding: 0; margin: 0; border: 0; box-shadow: none; }
+      a { color: inherit; }
+      pre { white-space: pre-wrap; color: #111; background: #f5f5f5; border-color: #ddd; }
+      h2 { break-before: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <h2>Plan Contents</h2>
+      <a class="toc-level-2" href="#context-file-rules">Context File Rules</a>
+<a class="toc-level-2" href="#pr-review-queue">PR Review Queue</a>
+<a class="toc-level-2" href="#review-feedback-workflow">Review Feedback Workflow</a>
+      <a class="toc-level-2" href="#current-baseline">Current Baseline</a>
+<a class="toc-level-2" href="#mvp-definition">MVP Definition</a>
+<a class="toc-level-2" href="#file-structure">File Structure</a>
+<a class="toc-level-3" href="#task-1-open-the-mvp-readiness-task">Task 1: Open The MVP Readiness Task</a>
+<a class="toc-level-3" href="#task-2-replace-the-scaffolded-root-app-surface">Task 2: Replace The Scaffolded Root App Surface</a>
+<a class="toc-level-3" href="#task-3-close-pp-028-without-adding-a-redundant-control">Task 3: Close PP-028 Without Adding A Redundant Control</a>
+<a class="toc-level-3" href="#task-4-decide-and-enforce-production-docs-access">Task 4: Decide And Enforce Production Docs Access</a>
+<a class="toc-level-3" href="#task-5-reconcile-readme-prd-and-roadmap-state">Task 5: Reconcile README, PRD, And Roadmap State</a>
+<a class="toc-level-3" href="#task-6-add-a-manual-mvp-qa-checklist">Task 6: Add A Manual MVP QA Checklist</a>
+<a class="toc-level-3" href="#task-7-final-validation-and-close-mvp-readiness">Task 7: Final Validation And Close MVP Readiness</a>
+<a class="toc-level-2" href="#threading-recommendation">Threading Recommendation</a>
+<a class="toc-level-2" href="#review-feedback-append-zone">Review Feedback Append Zone</a>
+<a class="toc-level-2" href="#self-review">Self-Review</a>
+    </aside>
+    <main>
+      <article>
+        <p class="eyebrow">Pickle Point</p>
+        <p class="meta">Canonical HTML context file for MVP finish work, PR review status, and appended feedback. Last context update: 2026-06-22.</p>
+        <h1 id="mvp-finish-implementation-plan">MVP Finish Implementation Plan</h1>
+<blockquote><p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p></blockquote>
+<p><strong>Goal:</strong> Bring Pickle Point to MVP-ready status by replacing scaffolded surfaces, closing the remaining decision tasks, reconciling stale planning docs, and running final validation.</p>
+<p><strong>Architecture:</strong> Keep Convex as the backend source of truth and keep WorkOS AuthKit as the Game Master auth boundary. Treat the current feature implementation as mostly complete; this plan finishes the public entry surface, documentation/access decisions, task-log state, and release QA. Avoid large feature expansion unless a decision task proves a real blocker.</p>
+<p><strong>Tech Stack:</strong> Next.js 16 App Router, React 19, TypeScript, Tailwind CSS 4, Convex, WorkOS AuthKit, Fumadocs, Vitest, ESLint.</p>
+<h2 id="context-file-rules">Context File Rules</h2>
+<div class="callout info">
+  <p><strong>This HTML file is the canonical working context for MVP finish work.</strong> Future review comments, branch status updates, and PR readiness notes should be appended here first, then reflected in code/docs/task-log files as work is completed.</p>
+</div>
+<ul>
+  <li>Do not regenerate this HTML from the markdown source after review feedback has been appended, unless the appended feedback is first preserved in the new output.</li>
+  <li>When a branch starts, update the relevant row in <a href="#pr-review-queue">PR Review Queue</a> from <span class="pill todo">planned</span> to <span class="pill review">in progress</span>.</li>
+  <li>When a branch is pushed and ready for the user's review, update the row to <span class="pill ready">ready for review</span> and add the PR URL or branch name.</li>
+  <li>When the user appends review feedback, add it inside <a href="#review-feedback-append-zone">Review Feedback Append Zone</a> using the template provided there.</li>
+  <li>Every feedback item must be assigned to exactly one branch/PR, fixed there, and recorded as resolved or intentionally deferred.</li>
+  <li>If feedback changes scope, add a new follow-up row instead of silently expanding an existing PR.</li>
+</ul>
+<h2 id="pr-review-queue">PR Review Queue</h2>
+<p>Use one focused branch per reviewable slice. Branch names follow the repo contract: <code>feat/</code>, <code>minor/</code>, <code>chore/</code>, <code>fix/</code>, or <code>hotfix/</code>.</p>
+<table>
+  <thead>
+    <tr>
+      <th>PR</th>
+      <th>Branch</th>
+      <th>Scope</th>
+      <th>Plan Tasks</th>
+      <th>Ready Gate</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PR-0<br><a href="https://github.com/JohnPevien/pickle-point/pull/26">#26</a></td>
+      <td><code>chore/mvp-plan-context</code></td>
+      <td>Keep this HTML context file review-ready, dark, and append-safe.</td>
+      <td>Context File Rules, PR Review Queue, Feedback Workflow</td>
+      <td>HTML opens locally, contains append markers, and explains feedback handling.</td>
+      <td><span class="pill ready">ready for review</span></td>
+    </tr>
+    <tr>
+      <td>PR-1</td>
+      <td><code>chore/mvp-readiness-task-log</code></td>
+      <td>Open PP-030 and wire task-log navigation.</td>
+      <td>Task 1</td>
+      <td><code>./node_modules/.bin/next build --webpack</code> passes.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+    <tr>
+      <td>PR-2</td>
+      <td><code>feat/home-surface</code></td>
+      <td>Replace scaffolded root page and metadata.</td>
+      <td>Task 2</td>
+      <td>Home helper tests, ESLint, and Next build pass.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+    <tr>
+      <td>PR-3</td>
+      <td><code>chore/open-play-regeneration-decision</code></td>
+      <td>Close PP-028 with backend proof and docs decision.</td>
+      <td>Task 3</td>
+      <td>Open Play session tests and ESLint pass.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+    <tr>
+      <td>PR-4</td>
+      <td><code>feat/docs-access-policy</code></td>
+      <td>Define and enforce production docs access, including search.</td>
+      <td>Task 4</td>
+      <td>Docs access tests, auth route tests, ESLint, and Next build pass.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+    <tr>
+      <td>PR-5</td>
+      <td><code>docs/mvp-state-reconciliation</code></td>
+      <td>Reconcile README, PRD, roadmap, changelog, and PP-030 evidence.</td>
+      <td>Task 5</td>
+      <td>ESLint and Next build pass.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+    <tr>
+      <td>PR-6</td>
+      <td><code>docs/mvp-qa-checklist</code></td>
+      <td>Add manual MVP QA checklist and docs navigation.</td>
+      <td>Task 6</td>
+      <td>Docs build includes <code>/docs/mvp-qa</code>.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+    <tr>
+      <td>PR-7</td>
+      <td><code>chore/mvp-final-validation</code></td>
+      <td>Run final validation, record QA evidence, and close PP-030.</td>
+      <td>Task 7</td>
+      <td>All required checks and manual QA evidence are recorded.</td>
+      <td><span class="pill todo">planned</span></td>
+    </tr>
+  </tbody>
+</table>
+<div class="status-grid">
+  <div class="status-card">
+    <h4>Branch Rule</h4>
+    <p>One PR per row. Do not mix product code, docs access policy, and final validation in one branch.</p>
+  </div>
+  <div class="status-card">
+    <h4>Review Owner</h4>
+    <p>The user reviews each PR/branch and appends feedback to this HTML context file.</p>
+  </div>
+  <div class="status-card">
+    <h4>Feedback Rule</h4>
+    <p>Every appended note gets an ID, target branch, severity, required action, and resolution status.</p>
+  </div>
+</div>
+<h2 id="review-feedback-workflow">Review Feedback Workflow</h2>
+<ol>
+  <li>User reviews one branch/PR and appends feedback to <a href="#review-feedback-append-zone">Review Feedback Append Zone</a>.</li>
+  <li>Next worker reads this file before code, scans for unresolved feedback, and groups it by branch.</li>
+  <li>Worker fixes only feedback assigned to the current branch unless the note explicitly requests a new follow-up PR.</li>
+  <li>Worker updates the feedback entry with resolution evidence: commit, files changed, and validation command.</li>
+  <li>Worker updates the PR Review Queue status and leaves unresolved items visible.</li>
+</ol>
+<div class="callout warn">
+  <p><strong>Do not bury review feedback in chat only.</strong> If it should affect implementation, paste it into this HTML file so the next branch has durable context.</p>
+</div>
+<hr>
+<h2 id="current-baseline">Current Baseline</h2>
+<ul>
+<li><code>git status --short</code>: clean before planning, then this plan file is the only expected planning change.</li>
+<li><code>./node_modules/.bin/vitest run</code>: 14 files passed, 201 tests passed.</li>
+<li><code>./node_modules/.bin/eslint</code>: passed.</li>
+<li><code>./node_modules/.bin/next build --webpack</code>: passed, generated 54 app/docs pages.</li>
+<li><code>pnpm test</code>: did not reach tests in this restricted environment because pnpm tried to fetch registry metadata and run an install/status step before scripts. Treat this as an environment/package-manager caveat; re-run standard <code>pnpm test</code>, <code>pnpm lint</code>, and <code>pnpm build</code> in a normal networked developer shell before release tagging.</li>
+<li><code>./node_modules/.bin/tsc --noEmit</code>: currently fails on test-file type strictness in <code>src/lib/auth/workos-routes.test.ts</code>; this is not part of the documented project validation path, but it is a good post-MVP hardening task if the team wants stricter whole-repo type checking.</li>
+</ul>
+<h2 id="mvp-definition">MVP Definition</h2>
+<p>MVP is done when:</p>
+<ul>
+<li>Root <code>/</code> identifies Pickle Point, not Create Next App, and routes Game Masters to setup/sign-in/docs.</li>
+<li>Metadata says Pickle Point.</li>
+<li><code>docs/task-log/</code> has no stale active state and records the final readiness task.</li>
+<li>PP-028 is closed with evidence: no separate regenerate-only-empty-courts control is needed because generation already fills unoccupied courts only.</li>
+<li>PP-029 is closed with an explicit production docs access model, including <code>/api/search</code>.</li>
+<li><code>PRD-NEW.md</code>, <code>README.md</code>, <code>docs/roadmap.mdx</code>, <code>docs/architecture.mdx</code>, and <code>docs/decisions-log.mdx</code> agree on the MVP state.</li>
+<li>A manual MVP QA checklist exists for workspace, venues, players, open play, tournaments, public live views, docs, and auth.</li>
+<li>Final validation commands pass or any environment-specific caveat is documented in the task log.</li>
+</ul>
+<h2 id="file-structure">File Structure</h2>
+<ul>
+<li>Create <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code>: one task page that tracks the finish pass and validation evidence.</li>
+<li>Modify <code>docs/task-log/index.mdx</code>: mark PP-030 as in progress during execution, then done at the end.</li>
+<li>Modify <code>docs/task-log/meta.json</code>: add PP-030 to docs navigation.</li>
+<li>Create <code>src/lib/home/actions.ts</code>: small typed source for root-page action links.</li>
+<li>Create <code>src/lib/home/actions.test.ts</code>: focused unit tests for root actions.</li>
+<li>Modify <code>src/app/page.tsx</code>: replace the Create Next App scaffold with a Pickle Point app entry page.</li>
+<li>Modify <code>src/app/layout.tsx</code>: update default metadata.</li>
+<li>Modify <code>convex/openPlaySessions.test.ts</code>: add evidence that generation fills only unoccupied courts.</li>
+<li>Modify <code>docs/task-log/pp-028-decide-regenerate-only-empty-courts-controls.mdx</code>: close PP-028.</li>
+<li>Create <code>src/lib/docs/access.ts</code>: pure docs-access policy helper.</li>
+<li>Create <code>src/lib/docs/access.test.ts</code>: unit tests for docs-access policy.</li>
+<li>Modify <code>src/app/docs/layout.tsx</code>: apply docs access policy to docs pages.</li>
+<li>Modify <code>src/app/api/search/route.ts</code>: apply the same docs access policy to docs search.</li>
+<li>Modify <code>src/lib/auth/workos-routes.test.ts</code>: add route-level coverage for protected docs search.</li>
+<li>Modify <code>docs/task-log/pp-029-decide-production-docs-access-model.mdx</code>: close PP-029.</li>
+<li>Modify <code>docs/decisions-log.mdx</code>: record PP-028 and PP-029 decisions.</li>
+<li>Modify <code>docs/architecture.mdx</code>: record production docs access behavior.</li>
+<li>Modify <code>docs/roadmap.mdx</code>: move remaining decision items out of next product work once closed.</li>
+<li>Modify <code>docs/changelog.mdx</code>: record user-facing/root-page and docs-access changes.</li>
+<li>Modify <code>README.md</code>: update current features, setup notes, and remove stale backlog claims.</li>
+<li>Modify <code>PRD-NEW.md</code>: add current status and reconcile stale Phase 3/testing checkboxes.</li>
+<li>Create <code>docs/mvp-qa.mdx</code>: repeatable manual QA checklist for the MVP.</li>
+<li>Modify <code>docs/meta.json</code>: add <code>mvp-qa</code> to docs navigation.</li>
+</ul>
+<hr>
+<h3 id="task-1-open-the-mvp-readiness-task">Task 1: Open The MVP Readiness Task</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code></li>
+<li>Modify: <code>docs/task-log/index.mdx</code></li>
+<li>Modify: <code>docs/task-log/meta.json</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Create the task-log page</strong></li>
+</ul>
+<p>Create <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code>:</p>
+<pre><code class="language-mdx">---
+title: &quot;PP-030: MVP Readiness And Release Polish&quot;
+description: Final MVP readiness pass for root app polish, stale docs reconciliation, remaining decisions, and validation.
+---
+
+## Status
+
+In Progress
+
+## Goal
+
+Bring Pickle Point to MVP-ready status by replacing scaffolded entry surfaces, closing PP-028 and PP-029, reconciling stale planning docs, adding an MVP QA checklist, and recording validation evidence.
+
+## Acceptance Criteria
+
+- Root `/` and app metadata identify Pickle Point instead of Create Next App.
+- PP-028 is closed with evidence from current open play generation behavior.
+- PP-029 is closed with a documented production docs access model.
+- `README.md`, `PRD-NEW.md`, `docs/roadmap.mdx`, `docs/architecture.mdx`, and `docs/decisions-log.mdx` agree on current MVP state.
+- `docs/mvp-qa.mdx` exists and is linked from `docs/meta.json`.
+- Validation evidence is recorded here before status changes to Done.
+
+## Validation
+
+- Planning baseline:
+  - `./node_modules/.bin/vitest run`: passed, 201 tests.
+  - `./node_modules/.bin/eslint`: passed.
+  - `./node_modules/.bin/next build --webpack`: passed, 54 app/docs pages.
+  - `pnpm test`: blocked before tests by package-manager registry/install behavior in the restricted local environment.
+
+## Source / Provenance
+
+- Source: Current repo state, `docs/roadmap.mdx`, `docs/task-log/index.mdx`, and user request to finish or reach MVP.
+- Created date: 2026-06-22
+
+## Changelog Impact
+
+Add a changelog entry when root-page polish, docs access behavior, and MVP readiness state are complete.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Put PP-030 under In Progress</strong></li>
+</ul>
+<p>In <code>docs/task-log/index.mdx</code>, replace:</p>
+<pre><code class="language-mdx">## In Progress
+
+No active tasks.</code></pre>
+<p>with:</p>
+<pre><code class="language-mdx">## In Progress
+
+- [PP-030: MVP readiness and release polish](./pp-030-mvp-readiness-and-release-polish)</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Add PP-030 to docs navigation</strong></li>
+</ul>
+<p>In <code>docs/task-log/meta.json</code>, add the page slug after <code>pp-029-decide-production-docs-access-model</code>:</p>
+<pre><code class="language-json">&quot;pp-030-mvp-readiness-and-release-polish&quot;</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Verify docs navigation still builds</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: PASS. If this fails on <code>docs/task-log/meta.json</code>, fix JSON punctuation before moving on.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add docs/task-log/index.mdx docs/task-log/meta.json docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx
+git commit -m &quot;chore: open mvp readiness task&quot;</code></pre>
+<hr>
+<h3 id="task-2-replace-the-scaffolded-root-app-surface">Task 2: Replace The Scaffolded Root App Surface</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>src/lib/home/actions.ts</code></li>
+<li>Create: <code>src/lib/home/actions.test.ts</code></li>
+<li>Modify: <code>src/app/page.tsx</code></li>
+<li>Modify: <code>src/app/layout.tsx</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Write the failing root-action test</strong></li>
+</ul>
+<p>Create <code>src/lib/home/actions.test.ts</code>:</p>
+<pre><code class="language-ts">import { describe, expect, test } from &quot;vitest&quot;;
+import { HOME_ACTIONS, getHomeAction } from &quot;./actions&quot;;
+
+describe(&quot;home actions&quot;, () =&gt; {
+  test(&quot;exposes the MVP entry routes in display order&quot;, () =&gt; {
+    expect(HOME_ACTIONS.map((action) =&gt; action.href)).toEqual([
+      &quot;/setup&quot;,
+      &quot;/sign-in&quot;,
+      &quot;/docs&quot;,
+    ]);
+  });
+
+  test(&quot;marks setup as the primary action&quot;, () =&gt; {
+    expect(getHomeAction(&quot;setup&quot;)).toMatchObject({
+      label: &quot;Create workspace&quot;,
+      href: &quot;/setup&quot;,
+      variant: &quot;primary&quot;,
+    });
+  });
+
+  test(&quot;returns null for an unknown action&quot;, () =&gt; {
+    expect(getHomeAction(&quot;unknown&quot;)).toBeNull();
+  });
+});</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Run the test to verify it fails</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/home/actions.test.ts</code></pre>
+<p>Expected: FAIL because <code>src/lib/home/actions.ts</code> does not exist.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Implement the root action helper</strong></li>
+</ul>
+<p>Create <code>src/lib/home/actions.ts</code>:</p>
+<pre><code class="language-ts">export type HomeActionKey = &quot;setup&quot; | &quot;sign-in&quot; | &quot;docs&quot;;
+
+export type HomeAction = {
+  key: HomeActionKey;
+  label: string;
+  href: string;
+  description: string;
+  variant: &quot;primary&quot; | &quot;secondary&quot;;
+};
+
+export const HOME_ACTIONS: HomeAction[] = [
+  {
+    key: &quot;setup&quot;,
+    label: &quot;Create workspace&quot;,
+    href: &quot;/setup&quot;,
+    description: &quot;Set up your Game Master workspace and club profile.&quot;,
+    variant: &quot;primary&quot;,
+  },
+  {
+    key: &quot;sign-in&quot;,
+    label: &quot;Sign in&quot;,
+    href: &quot;/sign-in&quot;,
+    description: &quot;Continue to your protected Game Master workspace.&quot;,
+    variant: &quot;secondary&quot;,
+  },
+  {
+    key: &quot;docs&quot;,
+    label: &quot;Read docs&quot;,
+    href: &quot;/docs&quot;,
+    description: &quot;Open product, technical, and operating documentation.&quot;,
+    variant: &quot;secondary&quot;,
+  },
+];
+
+export function getHomeAction(key: string) {
+  return HOME_ACTIONS.find((action) =&gt; action.key === key) ?? null;
+}</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Run the helper test</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/home/actions.test.ts</code></pre>
+<p>Expected: PASS.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Replace <code>src/app/page.tsx</code></strong></li>
+</ul>
+<p>Replace the whole file with:</p>
+<pre><code class="language-tsx">import Link from &quot;next/link&quot;;
+import { ArrowRight, CalendarDays, ListChecks, Trophy } from &quot;lucide-react&quot;;
+import { HOME_ACTIONS } from &quot;@/lib/home/actions&quot;;
+
+const highlights = [
+  {
+    title: &quot;Run open play&quot;,
+    description: &quot;Create sessions, check players in, fill empty courts, record scores, and share live QR links.&quot;,
+    icon: CalendarDays,
+  },
+  {
+    title: &quot;Manage players&quot;,
+    description: &quot;Keep reusable player records with guest, walk-in, manual skill, and optional DUPR data.&quot;,
+    icon: ListChecks,
+  },
+  {
+    title: &quot;Host mini tournaments&quot;,
+    description: &quot;Generate fixed-doubles brackets for single elimination, double elimination, and round robin.&quot;,
+    icon: Trophy,
+  },
+];
+
+function actionClass(variant: &quot;primary&quot; | &quot;secondary&quot;) {
+  if (variant === &quot;primary&quot;) {
+    return &quot;bg-foreground text-background hover:bg-foreground/90&quot;;
+  }
+
+  return &quot;border border-border bg-background text-foreground hover:bg-muted&quot;;
+}
+
+export default function Home() {
+  return (
+    &lt;main className=&quot;min-h-screen bg-background text-foreground&quot;&gt;
+      &lt;section className=&quot;mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center gap-12 px-6 py-10 lg:px-8&quot;&gt;
+        &lt;nav className=&quot;flex items-center justify-between gap-4&quot;&gt;
+          &lt;Link href=&quot;/&quot; className=&quot;text-lg font-semibold tracking-tight&quot;&gt;
+            Pickle Point
+          &lt;/Link&gt;
+          &lt;div className=&quot;flex items-center gap-2&quot;&gt;
+            {HOME_ACTIONS.filter((action) =&gt; action.key !== &quot;setup&quot;).map((action) =&gt; (
+              &lt;Link
+                key={action.key}
+                href={action.href}
+                className=&quot;rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground&quot;
+              &gt;
+                {action.label}
+              &lt;/Link&gt;
+            ))}
+          &lt;/div&gt;
+        &lt;/nav&gt;
+
+        &lt;div className=&quot;grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]&quot;&gt;
+          &lt;div className=&quot;space-y-8&quot;&gt;
+            &lt;div className=&quot;space-y-5&quot;&gt;
+              &lt;p className=&quot;text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground&quot;&gt;
+                Pickleball operations for Game Masters
+              &lt;/p&gt;
+              &lt;h1 className=&quot;max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl&quot;&gt;
+                Run open plays and small tournaments from one live control surface.
+              &lt;/h1&gt;
+              &lt;p className=&quot;max-w-2xl text-lg leading-8 text-muted-foreground&quot;&gt;
+                Pickle Point helps club organizers manage workspaces, venues, players, fair rotations,
+                score entry, live player views, QR links, and fixed-doubles tournament brackets.
+              &lt;/p&gt;
+            &lt;/div&gt;
+
+            &lt;div className=&quot;flex flex-col gap-3 sm:flex-row&quot;&gt;
+              {HOME_ACTIONS.map((action) =&gt; (
+                &lt;Link
+                  key={action.key}
+                  href={action.href}
+                  className={`inline-flex h-11 items-center justify-center gap-2 rounded-md px-5 text-sm font-medium transition-colors ${actionClass(action.variant)}`}
+                &gt;
+                  {action.label}
+                  {action.variant === &quot;primary&quot; ? &lt;ArrowRight className=&quot;size-4&quot; /&gt; : null}
+                &lt;/Link&gt;
+              ))}
+            &lt;/div&gt;
+          &lt;/div&gt;
+
+          &lt;div className=&quot;rounded-lg border bg-muted/30 p-5&quot;&gt;
+            &lt;div className=&quot;space-y-4&quot;&gt;
+              &lt;div&gt;
+                &lt;p className=&quot;text-sm font-medium text-muted-foreground&quot;&gt;MVP workflow&lt;/p&gt;
+                &lt;h2 className=&quot;mt-1 text-2xl font-semibold tracking-tight&quot;&gt;From check-in to live results&lt;/h2&gt;
+              &lt;/div&gt;
+              &lt;div className=&quot;grid gap-3&quot;&gt;
+                {highlights.map((item) =&gt; {
+                  const Icon = item.icon;
+                  return (
+                    &lt;div key={item.title} className=&quot;rounded-md border bg-background p-4&quot;&gt;
+                      &lt;div className=&quot;flex items-start gap-3&quot;&gt;
+                        &lt;div className=&quot;rounded-md bg-primary/10 p-2 text-primary&quot;&gt;
+                          &lt;Icon className=&quot;size-4&quot; /&gt;
+                        &lt;/div&gt;
+                        &lt;div className=&quot;space-y-1&quot;&gt;
+                          &lt;h3 className=&quot;font-medium&quot;&gt;{item.title}&lt;/h3&gt;
+                          &lt;p className=&quot;text-sm leading-6 text-muted-foreground&quot;&gt;{item.description}&lt;/p&gt;
+                        &lt;/div&gt;
+                      &lt;/div&gt;
+                    &lt;/div&gt;
+                  );
+                })}
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+    &lt;/main&gt;
+  );
+}</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 6: Update root metadata</strong></li>
+</ul>
+<p>In <code>src/app/layout.tsx</code>, replace:</p>
+<pre><code class="language-ts">export const metadata: Metadata = {
+  title: &quot;Create Next App&quot;,
+  description: &quot;Generated by create next app&quot;,
+};</code></pre>
+<p>with:</p>
+<pre><code class="language-ts">export const metadata: Metadata = {
+  title: &quot;Pickle Point&quot;,
+  description: &quot;Realtime open play and tournament operations for pickleball Game Masters.&quot;,
+};</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 7: Verify root app work</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/home/actions.test.ts
+./node_modules/.bin/eslint
+./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: all pass.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 8: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add src/app/page.tsx src/app/layout.tsx src/lib/home/actions.ts src/lib/home/actions.test.ts
+git commit -m &quot;feat: replace scaffolded home surface&quot;</code></pre>
+<hr>
+<h3 id="task-3-close-pp-028-without-adding-a-redundant-control">Task 3: Close PP-028 Without Adding A Redundant Control</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>convex/openPlaySessions.test.ts</code></li>
+<li>Modify: <code>docs/decisions-log.mdx</code></li>
+<li>Modify: <code>docs/task-log/pp-028-decide-regenerate-only-empty-courts-controls.mdx</code></li>
+<li>Modify: <code>docs/task-log/index.mdx</code></li>
+<li>Modify: <code>docs/roadmap.mdx</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Write the backend proof test</strong></li>
+</ul>
+<p>In <code>convex/openPlaySessions.test.ts</code>, inside <code>describe(&quot;Match Generation &amp; Scoring&quot;, () =&gt; { ... })</code>, add this test after <code>generateMatches only assigns players that fit available courts</code>:</p>
+<pre><code class="language-ts">    test(&quot;generateMatches fills only courts without active matches&quot;, async () =&gt; {
+      const t = convexTest(schema, modules);
+      const { tenantId, sessionId, players } = await setupSessionWithPlayers(t, 8);
+
+      await t.run(async (ctx) =&gt; {
+        const venueId = await ctx.db.insert(&quot;venues&quot;, {
+          tenantId: tenantId as any,
+          name: &quot;Two Court Club&quot;,
+          courtCount: 2,
+          createdAt: Date.now(),
+        });
+        await ctx.db.patch(sessionId as any, { venueId });
+        await ctx.db.insert(&quot;sessionMatches&quot;, {
+          sessionId: sessionId as any,
+          courtName: &quot;Court 1&quot;,
+          team1: [players[0] as any, players[1] as any],
+          team2: [players[2] as any, players[3] as any],
+          status: &quot;in_progress&quot;,
+          createdAt: Date.now(),
+        });
+
+        for (const playerId of players.slice(0, 4)) {
+          const sessionPlayer = await ctx.db
+            .query(&quot;sessionPlayers&quot;)
+            .withIndex(&quot;by_sessionId_and_playerId&quot;, (q) =&gt;
+              q.eq(&quot;sessionId&quot;, sessionId as any).eq(&quot;playerId&quot;, playerId as any)
+            )
+            .unique();
+
+          await ctx.db.patch(sessionPlayer._id, {
+            status: &quot;playing&quot;,
+            queuePosition: undefined,
+          });
+        }
+      });
+
+      const result = await t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: sessionId as any,
+      });
+
+      expect(result.success).toBe(true);
+      expect((result as any).matches).toHaveLength(1);
+
+      const liveMatches = await t.query(api.openPlaySessions.getLiveMatches, {
+        sessionId: sessionId as any,
+      });
+      expect(liveMatches).toHaveLength(2);
+
+      const generatedMatch = liveMatches.find((match) =&gt; match.courtName === &quot;Court 2&quot;);
+      expect(generatedMatch).toBeDefined();
+
+      const generatedPlayerIds = new Set([
+        ...generatedMatch!.team1,
+        ...generatedMatch!.team2,
+      ].map(String));
+
+      for (const activePlayerId of players.slice(0, 4)) {
+        expect(generatedPlayerIds.has(String(activePlayerId))).toBe(false);
+      }
+    });</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Run the proof test</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run convex/openPlaySessions.test.ts -t &quot;fills only courts without active matches&quot;</code></pre>
+<p>Expected: PASS because current implementation already fills only unoccupied courts.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Record the decision</strong></li>
+</ul>
+<p>In <code>docs/decisions-log.mdx</code>, add this section after <code>## Open Play Rotation</code>:</p>
+<pre><code class="language-mdx">## Open Play Regeneration Controls
+
+Do not add a separate regenerate-only-empty-courts control for MVP. The existing Generate Matches action already fills only unoccupied courts, excludes players already in active matches, and returns a clear success message when all courts are occupied.
+
+Adding a second control would duplicate existing behavior and make the Game Master surface harder to reason about. Revisit only if real session usage shows Game Masters need a separate preview, dry-run, or partial-regeneration workflow.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Close PP-028</strong></li>
+</ul>
+<p>Replace the <code>## Status</code> section in <code>docs/task-log/pp-028-decide-regenerate-only-empty-courts-controls.mdx</code> with:</p>
+<pre><code class="language-mdx">## Status
+
+Done</code></pre>
+<p>Replace the <code>## Validation</code> section with:</p>
+<pre><code class="language-mdx">## Validation
+
+- `./node_modules/.bin/vitest run convex/openPlaySessions.test.ts -t &quot;fills only courts without active matches&quot;`: passed.
+- Current backend behavior fills only unoccupied courts and excludes players already in active matches.</code></pre>
+<p>Add this before <code>## Source / Provenance</code>:</p>
+<pre><code class="language-mdx">## Decision
+
+No separate regenerate-only-empty-courts control is needed for MVP. The existing Generate Matches action already behaves as the proposed control.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Remove PP-028 from pending work</strong></li>
+</ul>
+<p>In <code>docs/task-log/index.mdx</code>, remove this line from <code>## Pending</code>:</p>
+<pre><code class="language-mdx">- [PP-028: Decide regenerate-only-empty-courts controls](./pp-028-decide-regenerate-only-empty-courts-controls)</code></pre>
+<p>Add this line to the <code>## Done</code> list:</p>
+<pre><code class="language-mdx">- [PP-028: Decide regenerate-only-empty-courts controls](./pp-028-decide-regenerate-only-empty-courts-controls)</code></pre>
+<p>In <code>docs/roadmap.mdx</code>, remove this bullet from <code>## Next Product Work</code>:</p>
+<pre><code class="language-mdx">- Decide whether regenerate-only-empty-courts controls are still needed after fair rotation.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 6: Verify PP-028 work</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run convex/openPlaySessions.test.ts
+./node_modules/.bin/eslint</code></pre>
+<p>Expected: both pass.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 7: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add convex/openPlaySessions.test.ts docs/decisions-log.mdx docs/task-log/pp-028-decide-regenerate-only-empty-courts-controls.mdx docs/task-log/index.mdx docs/roadmap.mdx
+git commit -m &quot;chore: close open play regeneration decision&quot;</code></pre>
+<hr>
+<h3 id="task-4-decide-and-enforce-production-docs-access">Task 4: Decide And Enforce Production Docs Access</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>src/lib/docs/access.ts</code></li>
+<li>Create: <code>src/lib/docs/access.test.ts</code></li>
+<li>Modify: <code>src/app/docs/layout.tsx</code></li>
+<li>Modify: <code>src/app/api/search/route.ts</code></li>
+<li>Modify: <code>src/lib/auth/workos-routes.test.ts</code></li>
+<li>Modify: <code>docs/decisions-log.mdx</code></li>
+<li>Modify: <code>docs/architecture.mdx</code></li>
+<li>Modify: <code>docs/task-log/pp-029-decide-production-docs-access-model.mdx</code></li>
+<li>Modify: <code>docs/task-log/index.mdx</code></li>
+<li>Modify: <code>docs/roadmap.mdx</code></li>
+<li>Modify: <code>docs/changelog.mdx</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Write docs access policy tests</strong></li>
+</ul>
+<p>Create <code>src/lib/docs/access.test.ts</code>:</p>
+<pre><code class="language-ts">import { describe, expect, test } from &quot;vitest&quot;;
+import { getDocsAccessMode } from &quot;./access&quot;;
+
+describe(&quot;docs access policy&quot;, () =&gt; {
+  test(&quot;keeps docs public for local development when WorkOS is not configured&quot;, () =&gt; {
+    expect(getDocsAccessMode({ NODE_ENV: &quot;development&quot; })).toBe(&quot;public_local&quot;);
+  });
+
+  test(&quot;requires authentication when WorkOS is configured&quot;, () =&gt; {
+    expect(
+      getDocsAccessMode({
+        NODE_ENV: &quot;production&quot;,
+        WORKOS_CLIENT_ID: &quot;client_test&quot;,
+        WORKOS_API_KEY: &quot;sk_test&quot;,
+        WORKOS_COOKIE_PASSWORD: &quot;12345678901234567890123456789012&quot;,
+        NEXT_PUBLIC_WORKOS_REDIRECT_URI: &quot;https://app.example.com/callback&quot;,
+      })
+    ).toBe(&quot;authenticated&quot;);
+  });
+
+  test(&quot;hides docs in production when WorkOS is incomplete&quot;, () =&gt; {
+    expect(getDocsAccessMode({ NODE_ENV: &quot;production&quot; })).toBe(&quot;unavailable&quot;);
+  });
+});</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Run the policy test to verify it fails</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/docs/access.test.ts</code></pre>
+<p>Expected: FAIL because <code>src/lib/docs/access.ts</code> does not exist.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Implement the docs access policy helper</strong></li>
+</ul>
+<p>Create <code>src/lib/docs/access.ts</code>:</p>
+<pre><code class="language-ts">import { canBypassWorkosAuth, hasWorkosAuthConfig } from &quot;@/lib/auth/workos&quot;;
+
+export type DocsAccessMode = &quot;public_local&quot; | &quot;authenticated&quot; | &quot;unavailable&quot;;
+
+type DocsAccessEnv = Record&lt;string, string | undefined&gt; &amp; {
+  NODE_ENV?: string;
+  WORKOS_CLIENT_ID?: string;
+  WORKOS_API_KEY?: string;
+  WORKOS_COOKIE_PASSWORD?: string;
+  NEXT_PUBLIC_WORKOS_REDIRECT_URI?: string;
+};
+
+export function getDocsAccessMode(env: DocsAccessEnv): DocsAccessMode {
+  if (hasWorkosAuthConfig(env)) {
+    return &quot;authenticated&quot;;
+  }
+
+  if (canBypassWorkosAuth(env)) {
+    return &quot;public_local&quot;;
+  }
+
+  return &quot;unavailable&quot;;
+}</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Run the policy test</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/docs/access.test.ts</code></pre>
+<p>Expected: PASS.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Protect docs pages</strong></li>
+</ul>
+<p>Replace <code>src/app/docs/layout.tsx</code> with:</p>
+<pre><code class="language-tsx">import type { ReactNode } from &quot;react&quot;;
+import { withAuth } from &quot;@workos-inc/authkit-nextjs&quot;;
+import { notFound } from &quot;next/navigation&quot;;
+import { DocsLayout } from &quot;fumadocs-ui/layouts/docs&quot;;
+import { baseOptions } from &quot;@/lib/layout.shared&quot;;
+import { getDocsAccessMode } from &quot;@/lib/docs/access&quot;;
+import { source } from &quot;@/lib/source&quot;;
+
+export const dynamic = &quot;force-dynamic&quot;;
+
+async function requireDocsAccess() {
+  const mode = getDocsAccessMode(process.env);
+
+  if (mode === &quot;public_local&quot;) {
+    return;
+  }
+
+  if (mode === &quot;unavailable&quot;) {
+    notFound();
+  }
+
+  await withAuth({ ensureSignedIn: true });
+}
+
+export default async function Layout({ children }: { children: ReactNode }) {
+  await requireDocsAccess();
+
+  return (
+    &lt;DocsLayout {...baseOptions()} tree={source.getPageTree()}&gt;
+      {children}
+    &lt;/DocsLayout&gt;
+  );
+}</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 6: Protect docs search</strong></li>
+</ul>
+<p>Replace <code>src/app/api/search/route.ts</code> with:</p>
+<pre><code class="language-ts">import { withAuth } from &quot;@workos-inc/authkit-nextjs&quot;;
+import { createFromSource } from &quot;fumadocs-core/search/server&quot;;
+import { NextResponse } from &quot;next/server&quot;;
+import { getDocsAccessMode } from &quot;@/lib/docs/access&quot;;
+import { source } from &quot;@/lib/source&quot;;
+
+const search = createFromSource(source);
+
+export async function GET(request: Request) {
+  const mode = getDocsAccessMode(process.env);
+
+  if (mode === &quot;unavailable&quot;) {
+    return NextResponse.json({ error: &quot;Docs are unavailable.&quot; }, { status: 404 });
+  }
+
+  if (mode === &quot;authenticated&quot;) {
+    await withAuth({ ensureSignedIn: true });
+  }
+
+  return search.GET(request);
+}</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 7: Add route-level docs search coverage</strong></li>
+</ul>
+<p>In <code>src/lib/auth/workos-routes.test.ts</code>, add this hoisted mock near the existing hoisted mocks:</p>
+<pre><code class="language-ts">const docsSearchMocks = vi.hoisted(() =&gt; {
+  const searchGet = vi.fn(() =&gt; Response.json({ ok: true }));
+
+  return {
+    searchGet,
+    createFromSource: vi.fn(() =&gt; ({ GET: searchGet })),
+  };
+});</code></pre>
+<p>Add these mocks after the existing <code>vi.mock(...)</code> calls:</p>
+<pre><code class="language-ts">vi.mock(&quot;fumadocs-core/search/server&quot;, () =&gt; docsSearchMocks);
+vi.mock(&quot;@/lib/source&quot;, () =&gt; ({ source: {} }));</code></pre>
+<p>Add this reset block inside <code>beforeEach</code>:</p>
+<pre><code class="language-ts">  docsSearchMocks.searchGet.mockReset();
+  docsSearchMocks.searchGet.mockImplementation(() =&gt; Response.json({ ok: true }));
+  docsSearchMocks.createFromSource.mockReset();
+  docsSearchMocks.createFromSource.mockReturnValue({ GET: docsSearchMocks.searchGet });</code></pre>
+<p>Add this describe block after <code>describe(&quot;AuthKit proxy route&quot;, () =&gt; { ... })</code>:</p>
+<pre><code class="language-ts">describe(&quot;docs search access route&quot;, () =&gt; {
+  test(&quot;returns 404 in production when docs auth cannot be configured&quot;, async () =&gt; {
+    setWorkosEnv({ NODE_ENV: &quot;production&quot; });
+
+    const { GET } = await import(&quot;../../app/api/search/route&quot;);
+    const response = await GET(new Request(&quot;https://app.example.com/api/search?q=open&quot;));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: &quot;Docs are unavailable.&quot; });
+    expect(authkitMocks.withAuth).not.toHaveBeenCalled();
+    expect(docsSearchMocks.searchGet).not.toHaveBeenCalled();
+  });
+
+  test(&quot;requires WorkOS auth before serving production docs search&quot;, async () =&gt; {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockResolvedValue({ user: { id: &quot;user_123&quot; } });
+
+    const request = new Request(&quot;https://app.example.com/api/search?q=open&quot;);
+    const { GET } = await import(&quot;../../app/api/search/route&quot;);
+    const response = await GET(request);
+
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith({ ensureSignedIn: true });
+    expect(docsSearchMocks.searchGet).toHaveBeenCalledWith(request);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+  });
+});</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 8: Run the docs access tests</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/docs/access.test.ts src/lib/auth/workos-routes.test.ts</code></pre>
+<p>Expected: PASS.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 9: Record the decision</strong></li>
+</ul>
+<p>In <code>docs/decisions-log.mdx</code>, replace the <code>## Documentation</code> section with:</p>
+<pre><code class="language-mdx">## Documentation
+
+Use Fumadocs for in-app living documentation at `/docs`. The docs source lives in the root `docs/` directory, with flat MDX files unless a future section clearly needs many pages.
+
+Docs are public only for local development when WorkOS is not configured. In production with WorkOS configured, docs pages and docs search require a signed-in WorkOS session. In production without WorkOS configured, docs are unavailable.
+
+Use `docs/task-log/` as the canonical task queue and status history. It works with `docs/changelog.mdx`: the task log tracks execution state and validation evidence, while the changelog tracks shipped or meaningful project changes.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 10: Update architecture docs</strong></li>
+</ul>
+<p>In <code>docs/architecture.mdx</code>, replace:</p>
+<pre><code class="language-mdx">- `/docs`: living product and technical documentation.</code></pre>
+<p>with:</p>
+<pre><code class="language-mdx">- `/docs`: living product and technical documentation. Public locally when WorkOS is not configured; authenticated in production when WorkOS is configured; unavailable in production without WorkOS.</code></pre>
+<p>After the paragraph about <code>docs/meta.json</code>, add:</p>
+<pre><code class="language-mdx">Production docs access is intentionally not fully public because the docs include implementation, task-log, validation, and architecture details. The same access policy protects `/api/search` so docs content is not exposed through search when pages are protected.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 11: Close PP-029</strong></li>
+</ul>
+<p>Replace the <code>## Status</code> section in <code>docs/task-log/pp-029-decide-production-docs-access-model.mdx</code> with:</p>
+<pre><code class="language-mdx">## Status
+
+Done</code></pre>
+<p>Add this before <code>## Validation</code>:</p>
+<pre><code class="language-mdx">## Decision
+
+Production docs are authenticated when WorkOS is configured and unavailable in production when WorkOS is incomplete. Local development may keep docs public when WorkOS is not configured.</code></pre>
+<p>Replace the <code>## Validation</code> section with:</p>
+<pre><code class="language-mdx">## Validation
+
+- `./node_modules/.bin/vitest run src/lib/docs/access.test.ts src/lib/auth/workos-routes.test.ts`: passed.
+- `./node_modules/.bin/next build --webpack`: passed after docs access changes.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 12: Move PP-029 to Done and update roadmap</strong></li>
+</ul>
+<p>In <code>docs/task-log/index.mdx</code>, remove this line from <code>## Pending</code>:</p>
+<pre><code class="language-mdx">- [PP-029: Decide production docs access model](./pp-029-decide-production-docs-access-model)</code></pre>
+<p>Add this line to the <code>## Done</code> list:</p>
+<pre><code class="language-mdx">- [PP-029: Decide production docs access model](./pp-029-decide-production-docs-access-model)</code></pre>
+<p>In <code>docs/roadmap.mdx</code>, remove this bullet from <code>## Future Features</code>:</p>
+<pre><code class="language-mdx">- Production docs access decision: public, admin-only, or separate deployment.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 13: Add changelog entry</strong></li>
+</ul>
+<p>In <code>docs/changelog.mdx</code>, under <code>## Recent Merged Work</code>, add:</p>
+<pre><code class="language-mdx">- Production docs access was defined and enforced: local docs remain available for development, while production docs and docs search require WorkOS auth when configured.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 14: Verify docs access work</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run src/lib/docs/access.test.ts src/lib/auth/workos-routes.test.ts
+./node_modules/.bin/eslint
+./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: all pass.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 15: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add src/lib/docs/access.ts src/lib/docs/access.test.ts src/app/docs/layout.tsx src/app/api/search/route.ts src/lib/auth/workos-routes.test.ts docs/decisions-log.mdx docs/architecture.mdx docs/task-log/pp-029-decide-production-docs-access-model.mdx docs/task-log/index.mdx docs/roadmap.mdx docs/changelog.mdx
+git commit -m &quot;feat: define production docs access&quot;</code></pre>
+<hr>
+<h3 id="task-5-reconcile-readme-prd-and-roadmap-state">Task 5: Reconcile README, PRD, And Roadmap State</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>README.md</code></li>
+<li>Modify: <code>PRD-NEW.md</code></li>
+<li>Modify: <code>docs/roadmap.mdx</code></li>
+<li>Modify: <code>docs/changelog.mdx</code></li>
+<li>Modify: <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Update README current features</strong></li>
+</ul>
+<p>In <code>README.md</code>, replace the entire <code>## Current Features</code> section with:</p>
+<pre><code class="language-md">## Current Features
+
+- White-label tenant routing with configurable workspace theme colors.
+- WorkOS AuthKit integration for protected Game Master admin routes.
+- First-run workspace setup and workspace settings.
+- Venue management with court counts used by Open Play generation.
+- Player directory management with manual skill and optional DUPR data.
+- Accountless guest and walk-in player records for MVP participation.
+- Open Play session creation, check-in, fair rotation, score entry, manual match adjustment, QR sharing, and public live views.
+- Tournament creation, fixed-doubles entrants, seed editing, single elimination, double elimination, round robin, score correction, QR sharing, and public bracket views.
+- Versioned in-repo product and technical documentation at `/docs`.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Replace README stale backlog</strong></li>
+</ul>
+<p>In <code>README.md</code>, replace the entire <code>## MVP Backlog</code> section with:</p>
+<pre><code class="language-md">## MVP Readiness
+
+The canonical task queue lives in `docs/task-log/`. As of the MVP readiness pass, the remaining work is release polish: keeping docs in sync, validating the app, and recording any follow-up discovered during real Game Master usage.
+
+Future features are tracked in `docs/roadmap.mdx`, including AI-assisted matching, player account claim/link flow, singles tournaments, and random social pairing modes.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Update README commands with the current test script</strong></li>
+</ul>
+<p>In <code>README.md</code>, under <code>## Running the Project</code>, add:</p>
+<pre><code class="language-bash"># Run tests
+pnpm test</code></pre>
+<p>directly after the linting command block line for <code>pnpm lint</code>.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Add current PRD status</strong></li>
+</ul>
+<p>In <code>PRD-NEW.md</code>, add this section immediately after the first heading:</p>
+<pre><code class="language-md">## Current Implementation Status
+
+As of 2026-06-22, current repo implementation and tests supersede stale unchecked items in this historical PRD checklist. Use this priority when sources disagree:
+
+1. Current repo implementation and tests.
+2. `docs/task-log/`.
+3. This PRD.
+4. Imported ClickUp status.
+
+The MVP feature set is implemented enough for release-readiness polish: Convex backend, WorkOS AuthKit, workspace setup, venues, player directory, Open Play control/live views, fair rotation, manual match adjustment, tournaments, public bracket views, QR support, and browser-openable docs all exist in the repo.
+
+Remaining MVP readiness work is tracked in `docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx`.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Reconcile PRD implementation sequence</strong></li>
+</ul>
+<p>In <code>PRD-NEW.md</code>, replace:</p>
+<pre><code class="language-md">- [ ] Phase 3 — UI: Open Play session screens, live views, manual adjustment controls, and tournament screens complete; fair rotation and remaining workspace/venue/player admin screens pending.</code></pre>
+<p>with:</p>
+<pre><code class="language-md">- [x] Phase 3 — UI: Open Play session screens, live views, manual adjustment controls, fair rotation, tournament screens, workspace settings, venue management, player directory, and admin navigation are implemented.</code></pre>
+<p>In the same section, change these checklist items from unchecked to checked:</p>
+<pre><code class="language-md">- [x] Add regenerate-only-empty-courts controls if needed after fair-rotation rules are finalized.
+- [x] Fair sit-out rotation rules and controls.
+  - [x] Define fairness metric: wait count, last played time, consecutive sits, or queue position only.
+  - [x] Decide whether winners/losers returning to queue should affect sit-out priority.
+  - [x] Persist any needed rotation metadata if queue position is not enough.
+  - [x] Add visible wait/sit-out state to the Game Master control screen.
+  - [x] Add backend tests for the chosen rotation rule.
+- [x] Remaining admin screens for workspace, venue, player directory, and tournament management.
+  - [x] Workspace setup/edit screen for Game Master account bootstrap.
+  - [x] Venue/club profile screen with court count and branding fields.
+  - [x] Player directory CRUD screen with manual/DUPR rating fields.
+  - [x] Tournament list/detail management screens.
+  - [x] Admin navigation that links dashboard, open play, players, venues, and tournaments.</code></pre>
+<p>For the regenerate-only-empty-courts line, append:</p>
+<pre><code class="language-md">Decision: no separate control is needed because Generate Matches already fills only unoccupied courts.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 6: Reconcile PRD testing policy</strong></li>
+</ul>
+<p>In <code>PRD-NEW.md</code>, replace:</p>
+<pre><code class="language-md">- [ ] Maintain test coverage as new Convex modules are added.
+- [ ] Expand WorkOS test coverage beyond env validation/route constants to cover auth routes and `authkitProxy` wiring.
+- [ ] Add tests for any UI components with non-trivial logic when Phase 3 is implemented.</code></pre>
+<p>with:</p>
+<pre><code class="language-md">- [x] Maintain test coverage as new Convex modules are added.
+- [x] Expand WorkOS test coverage beyond env validation/route constants to cover auth routes and `authkitProxy` wiring.
+- [x] Add tests for UI helper and business logic introduced during Phase 3.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 7: Update roadmap next work</strong></li>
+</ul>
+<p>In <code>docs/roadmap.mdx</code>, replace <code>## Next Product Work</code> with:</p>
+<pre><code class="language-mdx">## Next Product Work
+
+- Complete the MVP readiness pass in `docs/task-log/pp-030-mvp-readiness-and-release-polish`.
+- Run final validation and record release-readiness evidence.
+- Continue polishing workspace bootstrap, venue setup, and player directory admin workflows from real usage.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 8: Record documentation reconciliation in PP-030</strong></li>
+</ul>
+<p>In <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code>, add this bullet under <code>## Validation</code>:</p>
+<pre><code class="language-mdx">- `README.md`, `PRD-NEW.md`, and `docs/roadmap.mdx` reconciled against current repo implementation and task-log state.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 9: Verify documentation reconciliation</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/eslint
+./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: both pass.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 10: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add README.md PRD-NEW.md docs/roadmap.mdx docs/changelog.mdx docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx
+git commit -m &quot;docs: reconcile mvp readiness state&quot;</code></pre>
+<hr>
+<h3 id="task-6-add-a-manual-mvp-qa-checklist">Task 6: Add A Manual MVP QA Checklist</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>docs/mvp-qa.mdx</code></li>
+<li>Modify: <code>docs/meta.json</code></li>
+<li>Modify: <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Create the MVP QA page</strong></li>
+</ul>
+<p>Create <code>docs/mvp-qa.mdx</code>:</p>
+<pre><code class="language-mdx">---
+title: MVP QA
+description: Manual release-readiness checklist for Pickle Point MVP.
+---
+
+## Goal
+
+Use this checklist before declaring the MVP ready for real Game Master usage.
+
+## Environment
+
+- Start Convex with `pnpm exec convex dev`.
+- Start Next.js with `pnpm dev`.
+- Use WorkOS credentials for protected-route testing, or local auth bypass only for local development checks.
+
+## Root And Auth
+
+- Visit `/` and confirm the page says Pickle Point, not Create Next App.
+- Click Create workspace and confirm it routes to `/setup`.
+- Click Sign in and confirm it starts the WorkOS AuthKit flow when WorkOS is configured.
+- Confirm production without complete WorkOS config does not expose protected admin routes.
+
+## Workspace And Venue
+
+- Create a first workspace from `/setup`.
+- Confirm the workspace redirects to `/:tenant/admin/dashboard`.
+- Edit workspace name, contact email, and branding fields.
+- Create or edit a venue with a court count.
+- Confirm the venue court count is used by Open Play match generation.
+
+## Player Directory
+
+- Create a player with manual skill data.
+- Create or edit a player with optional DUPR data.
+- Confirm accountless guests and walk-ins can be represented as player records.
+- Search player records by name or contact data.
+
+## Open Play
+
+- Create an Open Play session.
+- Check in directory players.
+- Register a walk-in player during check-in.
+- Move the session to Live.
+- Generate matches and confirm only empty courts are filled.
+- Confirm fair rotation prioritizes sitting-out players.
+- Rename a court.
+- Swap players.
+- Substitute a queued or sitting-out player into a match.
+- Cancel an unscored match.
+- Record a score and confirm standings/recent results update.
+- Open the public live link and QR link and confirm courts, queue, sit-outs, standings, and recent results are visible.
+
+## Tournaments
+
+- Create a tournament.
+- Register fixed doubles teams.
+- Edit seeds before bracket generation.
+- Generate a single-elimination bracket.
+- Record scores and confirm winners advance.
+- Correct a score before unsafe downstream completion.
+- Repeat a smoke check for double elimination and round robin.
+- Open the public tournament bracket and confirm player-visible state renders.
+- Confirm tournament live link and QR support.
+
+## Documentation Access
+
+- In local development without WorkOS, confirm `/docs` is available.
+- In production with WorkOS configured, confirm `/docs` and `/api/search` require a signed-in session.
+- In production without WorkOS configured, confirm docs are unavailable.
+
+## Final Checks
+
+- Run `pnpm test`.
+- Run `pnpm lint`.
+- Run `pnpm build`.
+- If the local package-manager wrapper blocks scripts before they run, repeat with the direct local binaries and record the environment caveat in the task log.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Add the QA page to docs navigation</strong></li>
+</ul>
+<p>In <code>docs/meta.json</code>, add <code>&quot;mvp-qa&quot;</code> before <code>&quot;validation&quot;</code>:</p>
+<pre><code class="language-json">&quot;mvp-qa&quot;</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Record QA checklist creation</strong></li>
+</ul>
+<p>In <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code>, add this bullet under <code>## Validation</code>:</p>
+<pre><code class="language-mdx">- `docs/mvp-qa.mdx` added as the manual release-readiness checklist.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Verify docs build</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/eslint
+./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: both pass, and the build route list includes <code>/docs/mvp-qa</code>.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add docs/mvp-qa.mdx docs/meta.json docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx
+git commit -m &quot;docs: add mvp qa checklist&quot;</code></pre>
+<hr>
+<h3 id="task-7-final-validation-and-close-mvp-readiness">Task 7: Final Validation And Close MVP Readiness</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code></li>
+<li>Modify: <code>docs/task-log/index.mdx</code></li>
+<li>Modify: <code>docs/changelog.mdx</code></li>
+</ul>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 1: Run standard validation</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">pnpm test
+pnpm lint
+pnpm build</code></pre>
+<p>Expected in a normal developer shell: all pass.</p>
+<p>If <code>pnpm</code> blocks before script execution in this restricted environment, run:</p>
+<pre><code class="language-bash">./node_modules/.bin/vitest run
+./node_modules/.bin/eslint
+./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: all pass. Record the <code>pnpm</code> caveat separately from app validation.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 2: Run the manual QA checklist</strong></li>
+</ul>
+<p>Follow <code>docs/mvp-qa.mdx</code> and record one of these outcomes in PP-030:</p>
+<pre><code class="language-mdx">- Manual MVP QA: passed for root, setup, workspace, venue, players, Open Play, tournaments, public views, and docs access.</code></pre>
+<p>or:</p>
+<pre><code class="language-mdx">- Manual MVP QA: found release-blocking issue in Open Play score entry. Follow-up task created before closing MVP readiness.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 3: Update PP-030 validation evidence</strong></li>
+</ul>
+<p>In <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code>, replace the <code>## Validation</code> section with the actual final command results, for example:</p>
+<pre><code class="language-mdx">## Validation
+
+- `pnpm test`: passed.
+- `pnpm lint`: passed.
+- `pnpm build`: passed.
+- Manual MVP QA: passed for root, setup, workspace, venue, players, Open Play, tournaments, public views, and docs access.</code></pre>
+<p>If the pnpm wrapper caveat persists in this environment, use:</p>
+<pre><code class="language-mdx">## Validation
+
+- `pnpm test`: blocked before tests by package-manager registry/install behavior in the restricted local environment.
+- `./node_modules/.bin/vitest run`: passed.
+- `./node_modules/.bin/eslint`: passed.
+- `./node_modules/.bin/next build --webpack`: passed.
+- Manual MVP QA: passed for root, setup, workspace, venue, players, Open Play, tournaments, public views, and docs access.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 4: Mark PP-030 Done</strong></li>
+</ul>
+<p>In <code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code>, replace:</p>
+<pre><code class="language-mdx">## Status
+
+In Progress</code></pre>
+<p>with:</p>
+<pre><code class="language-mdx">## Status
+
+Done</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 5: Move PP-030 to Done in the task index</strong></li>
+</ul>
+<p>In <code>docs/task-log/index.mdx</code>, replace:</p>
+<pre><code class="language-mdx">## In Progress
+
+- [PP-030: MVP readiness and release polish](./pp-030-mvp-readiness-and-release-polish)</code></pre>
+<p>with:</p>
+<pre><code class="language-mdx">## In Progress
+
+No active tasks.</code></pre>
+<p>Add this line to <code>## Done</code>:</p>
+<pre><code class="language-mdx">- [PP-030: MVP readiness and release polish](./pp-030-mvp-readiness-and-release-polish)</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 6: Add MVP readiness changelog entry</strong></li>
+</ul>
+<p>In <code>docs/changelog.mdx</code>, under <code>## Recent Merged Work</code>, add:</p>
+<pre><code class="language-mdx">- MVP readiness polish replaced the scaffolded root page, reconciled stale planning docs, closed remaining decision tasks, added a manual QA checklist, and recorded final validation.</code></pre>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 7: Final build</strong></li>
+</ul>
+<p>Run:</p>
+<pre><code class="language-bash">./node_modules/.bin/next build --webpack</code></pre>
+<p>Expected: PASS.</p>
+<ul>
+<li><span class="task-box" aria-hidden="true"></span><strong>Step 8: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">git add docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx docs/task-log/index.mdx docs/changelog.mdx
+git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
+<hr>
+<h2 id="threading-recommendation">Threading Recommendation</h2>
+<p>Use subagent-driven execution for Tasks 2, 3, 4, 5, and 6 if speed matters. Each task has clean file boundaries and can be reviewed independently.</p>
+<p>Use user-owned Codex threads only if you want separate sidebar-visible workstreams. Suggested split:</p>
+<ul>
+<li>Thread 1: Root page and README/PRD reconciliation.</li>
+<li>Thread 2: PP-028 Open Play decision and backend proof test.</li>
+<li>Thread 3: PP-029 docs access implementation and tests.</li>
+</ul>
+<p>Do not split Task 7. Final validation and task-log closure should happen in one place so the MVP readiness evidence stays coherent.</p>
+<p>For branch-by-branch review, prefer the PR queue above over new user-owned threads unless a branch needs a long-running isolated context.</p>
+<h2 id="review-feedback-append-zone">Review Feedback Append Zone</h2>
+<div class="append-zone">
+  <p><strong>Append review feedback below this section.</strong> Keep the HTML structure intact by adding one <code>&lt;article class="feedback-entry"&gt;</code> block per feedback item. Leave unresolved feedback visible until it has code/docs evidence and validation evidence.</p>
+  <p>Use IDs like <code>FB-PR4-001</code>. Severity values: <span class="pill blocked">blocking</span>, <span class="pill review">important</span>, <span class="pill todo">minor</span>. Status values: <span class="pill todo">open</span>, <span class="pill review">in progress</span>, <span class="pill ready">resolved</span>, <span class="pill blocked">deferred</span>.</p>
+</div>
+<h3 id="feedback-entry-template">Feedback Entry Template</h3>
+<pre><code class="language-html">&lt;article class=&quot;feedback-entry&quot; data-feedback-id=&quot;FB-PR4-001&quot; data-pr=&quot;PR-4&quot; data-status=&quot;open&quot;&gt;
+  &lt;h4&gt;FB-PR4-001: Short actionable title&lt;/h4&gt;
+  &lt;p&gt;&lt;strong&gt;Target PR:&lt;/strong&gt; PR-4 / &lt;code&gt;feat/docs-access-policy&lt;/code&gt;&lt;/p&gt;
+  &lt;p&gt;&lt;strong&gt;Severity:&lt;/strong&gt; blocking | important | minor&lt;/p&gt;
+  &lt;p&gt;&lt;strong&gt;Reviewer feedback:&lt;/strong&gt; Paste the exact review note or concise paraphrase here.&lt;/p&gt;
+  &lt;p&gt;&lt;strong&gt;Required action:&lt;/strong&gt; Describe the code, docs, tests, or decision change required.&lt;/p&gt;
+  &lt;p&gt;&lt;strong&gt;Resolution evidence:&lt;/strong&gt; Fill in branch, commit, files changed, and validation once fixed.&lt;/p&gt;
+  &lt;p&gt;&lt;strong&gt;Status:&lt;/strong&gt; open&lt;/p&gt;
+&lt;/article&gt;</code></pre>
+<div class="callout info">
+  <p><strong>Worker instruction:</strong> before starting any branch, search this file for <code>data-status="open"</code> and <code>data-status="in progress"</code>. Fix feedback assigned to the active branch before adding new scope.</p>
+</div>
+<!-- REVIEW_FEEDBACK_APPEND_START -->
+<article class="feedback-entry" data-feedback-id="FB-CONTEXT-001" data-pr="PR-0" data-status="resolved">
+  <h4>FB-CONTEXT-001: Make the HTML plan feedback-ready</h4>
+  <p><strong>Target PR:</strong> PR-0 / <code>chore/mvp-plan-context</code></p>
+  <p><strong>Severity:</strong> important</p>
+  <p><strong>Reviewer feedback:</strong> The HTML plan must be able to handle review feedback appended by the user and serve as the context file for branch-by-branch PR review.</p>
+  <p><strong>Required action:</strong> Add a PR review queue, canonical context rules, append-zone markers, a feedback entry template, and visible status semantics.</p>
+  <p><strong>Resolution evidence:</strong> Added <a href="#context-file-rules">Context File Rules</a>, <a href="#pr-review-queue">PR Review Queue</a>, <a href="#review-feedback-workflow">Review Feedback Workflow</a>, and this append zone. Published for review in <a href="https://github.com/JohnPevien/pickle-point/pull/26">PR #26</a>.</p>
+  <p><strong>Status:</strong> resolved</p>
+</article>
+<!-- Add future feedback entries above the end marker. -->
+<!-- REVIEW_FEEDBACK_APPEND_END -->
+<h2 id="self-review">Self-Review</h2>
+<ul>
+<li>Spec coverage: The plan covers root app polish, PP-028, PP-029, stale docs reconciliation, README freshness, MVP QA, validation, and task-log closure.</li>
+<li>Placeholder scan: No step relies on unspecified implementation work; code and markdown snippets are provided where files change.</li>
+<li>Type consistency: New helpers use explicit exported types and existing WorkOS helper names. Convex test snippets use existing test helpers and indexes.</li>
+</ul>
+      </article>
+    </main>
+  </div>
+</body>
+</html>
