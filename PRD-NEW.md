@@ -1,5 +1,18 @@
 # Pickle Point PRD + Cleanup TODO
 
+## Current Implementation Status
+
+As of 2026-06-22, current repo implementation and tests supersede stale unchecked items in this historical PRD checklist. Use this priority when sources disagree:
+
+1. Current repo implementation and tests.
+2. `docs/task-log/`.
+3. This PRD.
+4. Imported ClickUp status.
+
+The MVP feature set is implemented enough for release-readiness polish: Convex backend, WorkOS AuthKit, workspace setup, venues, player directory, Open Play control/live views, fair rotation, manual match adjustment, tournaments, public bracket views, QR support, and browser-openable docs all exist in the repo.
+
+Remaining MVP readiness work is tracked in `docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx`.
+
 ## Current Cleanup Status
 
 - The unreviewed Codex prototype work has been preserved before cleanup.
@@ -53,7 +66,7 @@ Follow this order to avoid wiring UI to an unfinished backend or protecting rout
 
 - [x] Phase 1 — Backend: all Convex query/mutation modules complete and lint+build passing.
 - [x] Phase 2 — Auth: WorkOS AuthKit installed, Convex auth config wired, layout-based guard protecting admin routes.
-- [ ] Phase 3 — UI: Open Play session screens, live views, manual adjustment controls, and tournament screens complete; fair rotation and remaining workspace/venue/player admin screens pending.
+- [x] Phase 3 — UI: Open Play session screens, live views, manual adjustment controls, fair rotation, tournament screens, workspace settings, venue management, player directory, and admin navigation are implemented.
 
 Phase 3 progress:
 
@@ -78,25 +91,25 @@ Phase 3 progress:
   - [x] Add backend mutation(s) for editing pending/in-progress session matches with tenant/session validation.
   - [x] Add UI controls for swapping players, substituting players, renaming courts, and cancelling unscored matches without losing queue state.
   - [x] Add validation and tests for duplicate players, missing players, active-player conflicts, and completed/scored-match restrictions.
-  - [ ] Add regenerate-only-empty-courts controls if needed after fair-rotation rules are finalized.
-- [ ] Fair sit-out rotation rules and controls.
-  - [ ] Define fairness metric: wait count, last played time, consecutive sits, or queue position only.
-  - [ ] Decide whether winners/losers returning to queue should affect sit-out priority.
-  - [ ] Persist any needed rotation metadata if queue position is not enough.
-  - [ ] Add visible wait/sit-out state to the Game Master control screen.
-  - [ ] Add backend tests for the chosen rotation rule.
+  - [x] Add regenerate-only-empty-courts controls if needed after fair-rotation rules are finalized. Decision: no separate control is needed because Generate Matches already fills only unoccupied courts.
+- [x] Fair sit-out rotation rules and controls.
+  - [x] Define fairness metric: wait count, last played time, consecutive sits, or queue position only.
+  - [x] Decide whether winners/losers returning to queue should affect sit-out priority.
+  - [x] Persist any needed rotation metadata if queue position is not enough.
+  - [x] Add visible wait/sit-out state to the Game Master control screen.
+  - [x] Add backend tests for the chosen rotation rule.
 - [x] Tournament bracket live/admin UI screens.
   - [x] Add tournament creation and status-management UI.
   - [x] Add Game Master bracket control route for generated brackets.
   - [x] Add tournament score-entry UI backed by `recordTournamentScore`.
   - [x] Add public live bracket route for players/spectators.
   - [x] Add bracket helper tests for grouping, status labels, public URL generation, and winner display.
-- [ ] Remaining admin screens for workspace, venue, player directory, and tournament management.
-  - [ ] Workspace setup/edit screen for Game Master account bootstrap.
-  - [ ] Venue/club profile screen with court count and branding fields.
-  - [ ] Player directory CRUD screen with manual/DUPR rating fields.
+- [x] Remaining admin screens for workspace, venue, player directory, and tournament management.
+  - [x] Workspace setup/edit screen for Game Master account bootstrap.
+  - [x] Venue/club profile screen with court count and branding fields.
+  - [x] Player directory CRUD screen with manual/DUPR rating fields.
   - [x] Tournament list/detail management screens.
-  - [ ] Admin navigation that links dashboard, open play, players, venues, and tournaments.
+  - [x] Admin navigation that links dashboard, open play, players, venues, and tournaments.
 
 ## Testing Policy
 
@@ -107,9 +120,9 @@ Every feature must ship with tests. No backend function, UI component, or auth f
 - UI components that contain business logic should have unit or integration tests.
 - `pnpm test` must pass before any phase is considered complete.
 
-- [ ] Maintain test coverage as new Convex modules are added.
-- [ ] Expand WorkOS test coverage beyond env validation/route constants to cover auth routes and `authkitProxy` wiring.
-- [ ] Add tests for any UI components with non-trivial logic when Phase 3 is implemented.
+- [x] Maintain test coverage as new Convex modules are added.
+- [x] Expand WorkOS test coverage beyond env validation/route constants to cover auth routes and `authkitProxy` wiring.
+- [x] Add tests for UI helper and business logic introduced during Phase 3.
 
 ## ClickUp Delivery Checklist
 
