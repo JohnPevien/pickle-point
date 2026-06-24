@@ -1,0 +1,40 @@
+---
+title: "PP-030: MVP Readiness And Release Polish"
+description: Final MVP readiness pass for root app polish, stale docs reconciliation, remaining decisions, and validation.
+---
+
+## Status
+
+In Progress
+
+## Goal
+
+Bring Pickle Point to MVP-ready status by replacing scaffolded entry surfaces, closing PP-028 and PP-029, reconciling stale planning docs, adding an MVP QA checklist, and recording validation evidence.
+
+## Acceptance Criteria
+
+- Root `/` and app metadata identify Pickle Point instead of Create Next App.
+- PP-028 is closed with evidence from current open play generation behavior.
+- PP-029 is closed with a documented production docs access model.
+- `README.md`, `PRD-NEW.md`, `docs/roadmap.mdx`, `docs/architecture.mdx`, and `docs/decisions-log.mdx` agree on current MVP state.
+- `docs/mvp-qa.mdx` exists and is linked from `docs/meta.json`.
+- Validation evidence is recorded here before status changes to Done.
+
+## Validation
+
+- Planning baseline:
+  - `./node_modules/.bin/vitest run`: passed, 201 tests.
+  - `./node_modules/.bin/eslint`: passed.
+  - `./node_modules/.bin/next build --webpack`: passed, 54 app/docs pages.
+  - `pnpm test`: blocked before tests by package-manager registry/install behavior in the restricted local environment.
+- PR-1 task-log navigation:
+  - `./node_modules/.bin/next build --webpack`: passed, 55 app/docs pages.
+
+## Source / Provenance
+
+- Source: Current repo state, `docs/roadmap.mdx`, `docs/task-log/index.mdx`, and the MVP finish context plan.
+- Created date: 2026-06-22
+
+## Changelog Impact
+
+Add a changelog entry when root-page polish, docs access behavior, and MVP readiness state are complete.
