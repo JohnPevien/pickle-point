@@ -214,12 +214,12 @@
       <td><span class="pill ready">ready for review</span></td>
     </tr>
     <tr>
-      <td>PR-6</td>
-      <td><code>docs/mvp-qa-checklist</code></td>
+      <td>PR-6<br><a href="https://github.com/JohnPevien/pickle-point/pull/32">#32</a></td>
+      <td><code>chore/mvp-qa-checklist</code></td>
       <td>Add manual MVP QA checklist and docs navigation.</td>
       <td>Task 6</td>
       <td>Docs build includes <code>/docs/mvp-qa</code>.</td>
-      <td><span class="pill todo">planned</span></td>
+      <td><span class="pill ready">ready for review</span></td>
     </tr>
     <tr>
       <td>PR-7</td>
@@ -1361,6 +1361,384 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
 <li>Type consistency: New helpers use explicit exported types and existing WorkOS helper names. Convex test snippets use existing test helpers and indexes.</li>
 </ul>
       </article>
+
+      <!-- ============================================================
+           REVIEW PLAN — written by the review agent before executing reviews
+           ============================================================ -->
+      <article id="review-plan">
+        <h2>Review Plan</h2>
+        <p><strong>Agent:</strong> Review agent (Claude Code review pass)<br>
+           <strong>Date:</strong> 2026-06-22<br>
+           <strong>Purpose:</strong> Review-only pass on P0–P4. No fixes. Produce structured reports per priority, append results in <a href="#review-reports">Review Reports</a> section.</p>
+
+        <h3>Agents &amp; Scope</h3>
+        <table>
+          <thead>
+            <tr><th>Agent</th><th>Priority</th><th>Scope</th><th>Looks At</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>P0 Reviewer</td>
+              <td><span class="pill ready">P0</span></td>
+              <td>Entity Hardening</td>
+              <td><code>club.slug</code> unique index, <code>getBySlug</code>, club dashboard wiring, <code>[clubId]</code> routes</td>
+            </tr>
+            <tr>
+              <td>P1a Reviewer</td>
+              <td><span class="pill ready">P1</span></td>
+              <td>Tournament Admin</td>
+              <td>Admin CRUD mutations, drag-reorder logic, user-facing tournament list &amp; detail pages</td>
+            </tr>
+            <tr>
+              <td>P1b Reviewer</td>
+              <td><span class="pill ready">P1</span></td>
+              <td>Open Play – Match Adjust</td>
+              <td><code>OpenPlay.matches</code> array schema, <code>matchAdjust</code> mutation, admin UI wiring</td>
+            </tr>
+            <tr>
+              <td>P2a Reviewer</td>
+              <td><span class="pill review">P2</span></td>
+              <td>Docs &amp; Branding</td>
+              <td>JSDoc coverage, branding rename, accessible labels on layout links</td>
+            </tr>
+            <tr>
+              <td>P2b Reviewer</td>
+              <td><span class="pill review">P2</span></td>
+              <td>Code Splitting</td>
+              <td>Dynamic imports for Leaderboard/PendingApproval dialogs, skeleton placeholders</td>
+            </tr>
+            <tr>
+              <td>P3 Reviewer</td>
+              <td><span class="pill todo">P3</span></td>
+              <td>Email Verification</td>
+              <td>Resend OTP mutation, cooldown logic, LoginScreen hints, old-code callout, docs</td>
+            </tr>
+            <tr>
+              <td>P4 Reviewer</td>
+              <td><span class="pill todo">P4</span></td>
+              <td>MVP Readiness State</td>
+              <td>MVP red-flag audit, known gaps documentation, mobile QA checklist</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Report Structure (per agent)</h3>
+        <ul>
+          <li><strong>Status:</strong> ✅ done / ⚠️ partial / ❌ not started / 🔍 needs investigation</li>
+          <li><strong>What exists:</strong> files &amp; functions found in codebase</li>
+          <li><strong>Gaps:</strong> missing vs plan spec</li>
+          <li><strong>Risks:</strong> blockers or concerns</li>
+        </ul>
+
+        <h3>Execution</h3>
+        <p>All 7 reviewers run in parallel via subagents. Results appended in <a href="#review-reports">Review Reports</a> section below.</p>
+      </article>
+
+      <!-- ============================================================
+           REVIEW REPORTS — appended by the review agent after execution
+           ============================================================ -->
+      <article id="review-reports">
+        <h2>Review Reports</h2>
+        <p><strong>Agent:</strong> Review agent (Claude Code review pass)<br>
+           <strong>Date:</strong> 2026-06-22<br>
+           <strong>Method:</strong> 7 parallel Explore subagents, one per priority. No code changes. Read-only.</p>
+
+        <!-- ── P0 ────────────────────────────────────────────── -->
+        <section id="report-p0">
+          <h3><span class="pill blocked">P0</span> Entity Hardening</h3>
+          <p><strong>Status:</strong> ❌ not started</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><code>tenants</code> table (<code>convex/schema.ts</code> lines 6–13) — fields: <code>name</code>, <code>logoUrl</code>, <code>primaryColor</code>, <code>secondaryColor</code>, <code>contactEmail</code>, <code>createdAt</code>. Index: <code>by_contactEmail</code>. No <code>slug</code> field.</li>
+            <li><code>venues</code> table (lines 25–31) — fields: <code>tenantId</code>, <code>name</code>, <code>address</code>, <code>courtCount</code>, <code>createdAt</code>. No <code>slug</code> field.</li>
+            <li><code>getById</code> query (<code>convex/tenants.ts</code> lines 108–117) — resolves by raw Convex document ID via <code>ctx.db.normalizeId("tenants", args.tenantId)</code>. Not slug-based.</li>
+            <li><code>getCurrentWorkspace</code> (lines 119–139) — resolves via authenticated user's <code>tenantId</code>.</li>
+            <li>Dynamic route is <code>[tenant]</code> (<code>src/app/[tenant]/</code>). No <code>[clubId]</code> or <code>[slug]</code> route exists.</li>
+            <li><code>AdminShell</code> accepts <code>tenantSlug</code> prop — but the value passed is a raw Convex ID, not a slug.</li>
+            <li><code>buildTenantUrl</code> (<code>src/lib/url.ts</code>) accepts <code>tenantSlug</code> parameter. Test files mock it with human-readable values — implying intended slug design, but nothing uses or generates actual slugs.</li>
+          </ul>
+
+          <h4>Gaps</h4>
+          <ol>
+            <li><strong>No <code>slug</code> field</strong> on any table. Schema needs <code>slug: v.string()</code> on <code>tenants</code>.</li>
+            <li><strong>No unique index</strong> on slug. Needs <code>.index("by_slug", ["slug"])</code>.</li>
+            <li><strong>No <code>getBySlug</code> query</code>. All resolution goes through <code>getById</code>.</li>
+            <li><strong>Routing uses raw Convex IDs</code>.</strong> <code>[tenant]</code> segment resolves via <code>getById({ tenantId: tenant })</code> — URLs like <code>/j7k2m9p4x1b8n3q5v6c0/admin/dashboard</code>.</li>
+            <li><strong>Slug generation missing.</strong> No logic to auto-generate URL-safe slug from workspace name during create/update.</li>
+            <li><strong><code>tenantSlug</code> prop naming is aspirational.</strong> Prop name anticipates a feature that doesn't exist yet.</li>
+          </ol>
+
+          <h4>Risks</h4>
+          <ul>
+            <li>URLs expose internal Convex IDs — not shareable, not human-readable.</li>
+            <li>No unique constraint on slug — collision risk if added without proper handling.</li>
+            <li>Backward compatibility — existing tenants have no slug value. Migration or fallback needed.</li>
+            <li>Wiring touches every layout, page, and URL builder in <code>src/app/[tenant]/**</code> and <code>src/lib/**</code>.</li>
+          </ul>
+        </section>
+
+        <!-- ── P1a ───────────────────────────────────────────── -->
+        <section id="report-p1a">
+          <h3><span class="pill review">P1a</span> Tournament Admin</h3>
+          <p><strong>Status:</strong> ⚠️ partial</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><code>createTournament</code> mutation (<code>convex/tournaments.ts</code> line 841) — creates in "draft" status.</li>
+            <li><code>updateTournamentStatus</code> (line 872) — state machine: draft → registration_open → registration_closed → bracket_generated → live → completed/cancelled.</li>
+            <li><code>updateTeamSeed</code> (line 903) — numeric seed per entrant.</li>
+            <li><code>generateBracket</code> (line 746) — round-robin, single-elim, double-elim.</li>
+            <li><code>recordTournamentScore</code> (line 1145) — scores, auto-advance, grand-final reset.</li>
+            <li><code>getTournamentView</code>, <code>getTournamentBracket</code>, <code>getRegisteredTeams</code>, <code>listByTenant</code>, <code>getById</code> queries all exist.</li>
+            <li>Admin UI: <code>TournamentListView</code> (create form + card grid), <code>TournamentControlView</code> (status transitions, bracket view, seed inputs, score inputs, QR panel).</li>
+            <li>User-facing: detail page at <code>/[tenant]/tournaments/[tournamentId]</code> with <code>LiveBracketView</code>.</li>
+            <li>Registration page at <code>/[tenant]/register</code>.</li>
+            <li>Helpers (<code>src/lib/tournament/helpers.ts</code>, 262 lines) with comprehensive tests (315 lines).</li>
+          </ul>
+
+          <h4>Gaps</h4>
+          <ol>
+            <li><strong>No delete tournament mutation.</strong> Can cancel but never delete. Cancelled tournaments are permanently stuck — no outgoing transitions.</li>
+            <li><strong>No drag-and-drop reordering.</strong> Zero drag dependencies in <code>package.json</code>. Seed editing uses manual number inputs with individual Save buttons.</li>
+            <li><strong>No user-facing tournament list page.</strong> No <code>/[tenant]/tournaments/page.tscode</code>. Users can only reach tournaments via direct URL or registration page (which only shows active registration_open tournaments).</li>
+            <li><strong>No tournament editing mutation.</strong> Can't update name/date/format/location after creation — must cancel and recreate.</li>
+          </ol>
+
+          <h4>Risks</h4>
+          <ul>
+            <li><strong>No access control on some queries.</strong> <code>getById</code> and <code>getRegisteredTeams</code> are unscoped — any client can fetch any tournament by ID regardless of tenant.</li>
+            <li>Cancelled tournaments are irreversible — no reactivation path.</li>
+            <li>No way to fix tournament metadata errors without cancelling and recreating.</li>
+          </ul>
+        </section>
+
+        <!-- ── P1b ───────────────────────────────────────────── -->
+        <section id="report-p1b">
+          <h3><span class="pill ready">P1b</span> Open Play – Match Adjust</h3>
+          <p><strong>Status:</strong> ✅ done</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><code>sessionMatches</code> separate table (<code>convex/schema.ts</code> lines 121–138) — first-class documents linked by <code>sessionId</code>. Fields: <code>courtName</code>, <code>team1</code>, <code>team2</code>, <code>score1</code>, <code>score2</code>, <code>status</code>.</li>
+            <li>Four match-adjust mutations in <code>convex/openPlaySessions.ts</code>:
+              <ul>
+                <li><code>updateMatchCourt</code> (line 927) — rename court.</li>
+                <li><code>swapMatchPlayers</code> (line 951) — swap across teams.</li>
+                <li><code>substituteMatchPlayer</code> (line 1017) — replace player with queued/sitting-out player.</li>
+                <li><code>cancelMatch</code> (line 1124) — cancel unscored match, return players to queue.</li>
+              </ul>
+            </li>
+            <li>Comprehensive tests in <code>convex/openPlaySessions.test.ts</code> (lines 932–1215+).</li>
+            <li><code>MatchAdjustPanel.tsx</code> — collapsible inline panel with court rename, swap, substitute, cancel controls. Validates scored-match restrictions, same-team detection, duplicate guarding.</li>
+            <li>Wired into <code>OpenPlayControlView.tsx</code> line 821 inside <code>MatchScoreCard</code>.</li>
+            <li>Helper functions in <code>src/lib/open-play/helpers.ts</code>: <code>arePlayersOnSameMatchTeam</code>, <code>canSwapMatchPlayers</code>, <code>isMatchScored</code>, <code>getEligibleSubstitutes</code>, <code>canSubstituteMatchPlayer</code>, <code>canCancelMatchAdjustment</code>, <code>getActivePlayerIds</code>.</li>
+          </ul>
+
+          <h4>Gaps</h4>
+          <p><em>None.</em> All four match-adjust operations are implemented end-to-end with tests.</p>
+
+          <h4>Risks</h4>
+          <p><em>None.</em> Implementation is complete and tested. All documented illegal states are guarded.</p>
+        </section>
+
+        <!-- ── P2a ───────────────────────────────────────────── -->
+        <section id="report-p2a">
+          <h3><span class="pill review">P2a</span> Docs &amp; Branding</h3>
+          <p><strong>Status:</strong> ⚠️ partial</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><strong>Branding: complete.</strong> No placeholder names found. "Pickle Point" in layout title, root page, setup page, docs page, shared layout.</li>
+            <li><strong>Accessible labels: adequate.</strong> <code>AdminShell</code> has <code>aria-label</code> on desktop nav, mobile toggle, mobile nav. <code>MatchAdjustPanel</code> has 5 aria-labels. <code>OpenPlayControlView</code> has 10. <code>TournamentControlView</code> has 2.</li>
+            <li><strong>JSDoc coverage: 52% (26 of 50 Convex exports).</strong></li>
+          </ul>
+
+          <h4>JSDoc Coverage Breakdown</h4>
+          <table>
+            <thead><tr><th>File</th><th>Covered</th><th>Missing</th></tr></thead>
+            <tbody>
+              <tr><td><code>openPlaySessions.ts</code></td><td>16/16 (100%)</td><td>none</td></tr>
+              <tr><td><code>players.ts</code></td><td>2/7 (29%)</td><td><code>getById</code>, <code>createPlayer</code>, <code>updatePlayer</code>, <code>deletePlayer</code>, <code>getPlayerStats</code></td></tr>
+              <tr><td><code>tenants.ts</code></td><td>2/5 (40%)</td><td><code>getCurrentWorkspace</code>, <code>createWorkspace</code>, <code>updateWorkspace</code></td></tr>
+              <tr><td><code>tournaments.ts</code></td><td>5/11 (45%)</td><td><code>createTournament</code>, <code>updateTournamentStatus</code>, <code>updateTeamSeed</code>, <code>getTournamentBracket</code>, <code>getTournamentView</code>, <code>recordTournamentScore</code></td></tr>
+              <tr><td><code>stats.ts</code></td><td>0/1 (0%)</td><td><code>getLeaderboard</code></td></tr>
+              <tr><td><code>venues.ts</code></td><td>1/4 (25%)</td><td><code>createVenue</code>, <code>updateVenue</code>, <code>deleteVenue</code></td></tr>
+              <tr><td><code>users.ts</code></td><td>0/2 (0%)</td><td><code>getCurrentUser</code>, <code>getOrCreateUser</code></td></tr>
+              <tr><td><code>playerContact.ts</code></td><td>0/4 (0%)</td><td><code>normalizeEmail</code>, <code>normalizePhone</code>, <code>legacyContactValue</code>, <code>findPlayerByContact</code></td></tr>
+            </tbody>
+          </table>
+
+          <h4>Gaps</h4>
+          <ol>
+            <li><strong>24 of 50 Convex exports lack JSDoc.</strong> Biggest holes in <code>players.ts</code>, <code>tournaments.ts</code>, <code>venues.ts</code>, <code>users.ts</code>.</li>
+            <li><strong>React component JSDoc minimal.</strong> Only <code>MatchAdjustPanel.tscode</code> has a component-level JSDoc block. <code>AdminShell</code>, <code>OpenPlayControlView</code>, <code>DashboardView</code>, <code>PlayerDirectoryAdminView</code>, <code>TournamentControlView</code>, <code>TournamentListView</code>, <code>VenueAdminView</code>, <code>WorkspaceSettingsForm</code>, <code>LiveOpenPlayView</code>, <code>SessionQrPanel</code>, <code>RegistrationForm</code>, <code>WorkspaceSetupForm</code> all lack JSDoc.</li>
+            <li><strong>Home page nav links</strong> have visible text but no explicit <code>aria-label</code> attributes (sufficient for compliance but could be clearer).</li>
+          </ol>
+
+          <h4>Risks</h4>
+          <ul>
+            <li>Low risk. JSDoc gaps affect developer experience, not user-facing behavior.</li>
+            <li>No blocker for release. Branding is complete. Accessibility on admin navigation is solid.</li>
+          </ul>
+        </section>
+
+        <!-- ── P2b ───────────────────────────────────────────── -->
+        <section id="report-p2b">
+          <h3><span class="pill blocked">P2b</span> Code Splitting</h3>
+          <p><strong>Status:</strong> ❌ not started</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><code>SessionQrPanel.tsx</code> — only file using <code>next/dynamic</code>. Lazy-loads <code>qrcode.react</code> with <code>ssr: false</code> and text placeholder. Library-level optimization only.</li>
+            <li><code>TournamentControlView.tsx</code> (line 696–708) — inline <code>LoadingSkeleton</code> for Convex data-loading states. Not a code-split skeleton.</li>
+            <li><code>LiveBracketView.tsx</code> (line 227–239) — inline <code>BracketSkeleton</code>. Same pattern.</li>
+            <li><code>LiveOpenPlayView.tsx</code> — inline leaderboard rendering. Not extracted as a standalone component.</li>
+          </ul>
+
+          <h4>Gaps</h4>
+          <ol>
+            <li><strong>No <code>next/dynamic</code> or <code>React.lazy</code> for Leaderboard.</strong> Embedded inline in <code>LiveOpenPlayView.tsx</code>.</li>
+            <li><strong>No <code>PendingApproval</code> component exists.</strong> Zero references in entire source tree. Requires both backend and frontend work.</li>
+            <li><strong>No reusable skeleton/loading component.</strong> Existing skeletons are private helpers inside individual files.</li>
+            <li><strong>No <code>Suspense</code> boundaries in application code.</strong> Zero uses of <code>&lt;Suspense&gt;</code> anywhere.</li>
+          </ol>
+
+          <h4>Risks</h4>
+          <ul>
+            <li>PendingApproval requires full-stack implementation — not purely a code-splitting task.</li>
+            <li>Without shared skeleton primitives, each dynamic import will duplicate placeholder JSX.</li>
+          </ul>
+        </section>
+
+        <!-- ── P3 ────────────────────────────────────────────── -->
+        <section id="report-p3">
+          <h3><span class="pill blocked">P3</span> Email Verification</h3>
+          <p><strong>Status:</strong> ❌ not started</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><code>convex/auth.config.ts</code> — delegates to WorkOS AuthKit via <code>WORKOS_CLIENT_ID</code>. No custom auth logic.</li>
+            <li><code>src/app/sign-in/route.ts</code> — redirect-only to WorkOS hosted sign-in.</li>
+            <li><code>src/app/sign-up/route.ts</code> — redirect-only to WorkOS hosted sign-up.</li>
+            <li><code>src/app/callback/route.ts</code> — single-line <code>handleAuth()</code> callback.</li>
+            <li><code>convex/users.ts</code> — <code>getCurrentUser</code> and <code>getOrCreateUser</code>. No <code>emailVerified</code> field.</li>
+            <li><code>convex/schema.ts</code> — <code>users</code> table: <code>tokenIdentifier</code>, <code>tenantId</code>, <code>email</code>, <code>name</code>, <code>createdAt</code>. No verification fields.</li>
+            <li><code>docs/auth.mdx</code> — documents WorkOS AuthKit. No mention of email verification flow.</li>
+          </ul>
+
+          <h4>Gaps</h4>
+          <ol>
+            <li><strong>Resend OTP mutation</strong> — does not exist.</li>
+            <li><strong>Cooldown logic</strong> — does not exist. Zero rate-limiting anywhere in codebase.</li>
+            <li><strong>LoginScreen hints</strong> — no custom login screen. Sign-in/sign-up are redirect-only to WorkOS.</li>
+            <li><strong>Old-code callout</strong> — no UI messaging about expired verification codes.</li>
+            <li><strong>Docs</strong> — no email verification section in auth docs. No OTP checks in QA checklist.</li>
+          </ol>
+
+          <h4>Risks</h4>
+          <ul>
+            <li><strong>Potentially N/A for MVP.</strong> WorkOS AuthKit handles email verification as part of its hosted flow. The plan's P3 scope assumes custom/self-managed verification. If WorkOS's built-in flow is sufficient, P3 is not needed.</li>
+            <li>No <code>emailVerified</code> field on <code>users</code> table — can't gate functionality behind verified email.</li>
+            <li><code>players</code> table also lacks verification fields for future player accounts.</li>
+          </ul>
+        </section>
+
+        <!-- ── P4 ────────────────────────────────────────────── -->
+        <section id="report-p4">
+          <h3><span class="pill review">P4</span> MVP Readiness State</h3>
+          <p><strong>Status:</strong> ⚠️ partial</p>
+
+          <h4>What exists</h4>
+          <ul>
+            <li><code>src/app/page.tsx</code> — proper Pickle Point landing page with branded hero, three action links, MVP feature highlight cards. No default Next.js scaffold.</li>
+            <li><code>README.md</code> — updated with current feature list (8 bullet points), MVP readiness section, roadmap references.</li>
+            <li><code>docs/mvp-qa.mdx</code> — 77-line manual QA checklist covering Root/Auth, Workspace/Venue, Player Directory, Open Play (13 checks), Tournaments (9 checks), Docs Access (3 checks), Final Checks.</li>
+            <li><code>docs/task-log/pp-030-mvp-readiness-and-release-polish.mdx</code> — MVP readiness task page. Status: "In Progress". Validation evidence: 201 vitest tests, ESLint, 54 pages build.</li>
+            <li><code>docs/roadmap.mdx</code> — current state section, next product work, future features list.</li>
+            <li><code>docs/decisions-log.mdx</code> — canonical decisions documented. PP-028 and PP-029 closed.</li>
+          </ul>
+
+          <h4>Gaps</h4>
+          <ol>
+            <li><strong>No MVP red-flag audit or blocker documentation.</strong> No file explicitly lists release-blocking issues or risks.</li>
+            <li><strong>No known gaps/limitations document.</strong> Roadmap lists deferred features but no structured "known limitations" section.</li>
+            <li><strong>Mobile QA checklist missing.</strong> <code>mvp-qa.mdx</code> has zero mobile-specific checks. No viewport, touch, orientation items.</li>
+            <li><strong>PP-030 still "In Progress".</strong> Final validation (PR-7) is still planned. MVP readiness not formally declared done.</li>
+            <li><strong><code>pnpm test</code> caveat unresolved.</strong> Direct <code>./node_modules/.bin/vitest run</code> workaround used but not flagged as release concern.</li>
+            <li><strong>No risk/blocker section in PP-030.</strong> Task page tracks criteria but doesn't enumerate risks.</li>
+          </ol>
+
+          <h4>Risks</h4>
+          <ul>
+            <li><code>pnpm test</code> divergence may cause false failures in CI or new developer environments.</li>
+            <li>PP-030 remaining open means formal MVP readiness declaration is incomplete.</li>
+            <li>No mobile QA — touch targets, viewport breakpoints, orientation changes are untracked.</li>
+          </ul>
+        </section>
+
+        <!-- ── Summary ───────────────────────────────────────── -->
+        <section id="review-summary">
+          <h3>Summary</h3>
+          <table>
+            <thead><tr><th>Priority</th><th>Status</th><th>Verdict</th></tr></thead>
+            <tbody>
+              <tr><td><span class="pill blocked">P0</span> Entity Hardening</td><td>❌ not started</td><td>Full implementation needed. Schema, query, routing all missing slug support.</td></tr>
+              <tr><td><span class="pill review">P1a</span> Tournament Admin</td><td>⚠️ partial</td><td>Core CRUD + bracket + scoring done. Missing: delete, drag-reorder, user list page, edit mutation.</td></tr>
+              <tr><td><span class="pill ready">P1b</span> Open Play Match Adjust</td><td>✅ done</td><td>Complete. All four operations end-to-end with tests.</td></tr>
+              <tr><td><span class="pill review">P2a</span> Docs &amp; Branding</td><td>⚠️ partial</td><td>Branding done, accessibility adequate. JSDoc at 52% — 24 exports uncovered.</td></tr>
+              <tr><td><span class="pill blocked">P2b</span> Code Splitting</td><td>❌ not started</td><td>No dynamic imports for app code. PendingApproval component doesn't exist.</td></tr>
+              <tr><td><span class="pill blocked">P3</span> Email Verification</td><td>❌ not started</td><td>Potentially N/A — WorkOS handles verification. If custom needed, full implementation gap.</td></tr>
+              <tr><td><span class="pill review">P4</span> MVP Readiness</td><td>⚠️ partial</td><td>Landing page, README, QA checklist done. Missing: red-flag audit, mobile QA, formal closure.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="review-response-plan">
+          <h3>Implementation Response</h3>
+          <table>
+            <thead><tr><th>Track</th><th>Decision</th><th>Next Action</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="pill blocked">P0</span> Entity Hardening</td>
+                <td>MVP-blocking before PR-7, but too broad for final-validation closure.</td>
+                <td>Create a dedicated slug-routing branch series: additive schema/query support, backfill, then route switch with ID fallback.</td>
+              </tr>
+              <tr>
+                <td><span class="pill review">P1a</span> Tournament Admin</td>
+                <td>Access scoping and tournament editing are MVP-relevant. Delete, public list, and drag reorder are deferred polish.</td>
+                <td>Create follow-up branches for tenant-scoped tournament queries first, then tournament metadata editing.</td>
+              </tr>
+              <tr>
+                <td><span class="pill ready">P1b</span> Open Play Match Adjust</td>
+                <td>No implementation action needed.</td>
+                <td>Leave as complete unless new review feedback appears.</td>
+              </tr>
+              <tr>
+                <td><span class="pill review">P2a</span> Docs &amp; Branding</td>
+                <td>Safe developer-experience cleanup.</td>
+                <td>Add missing Convex JSDoc in a separate review-response branch.</td>
+              </tr>
+              <tr>
+                <td><span class="pill todo">P2b</span> Code Splitting</td>
+                <td>Deferred for MVP. Existing QR dependency split is enough; PendingApproval does not exist.</td>
+                <td>Record deferral in context/docs. Revisit only with measured bundle pain or a real PendingApproval feature.</td>
+              </tr>
+              <tr>
+                <td><span class="pill todo">P3</span> Email Verification</td>
+                <td>Deferred to WorkOS hosted AuthKit for MVP. Custom OTP would be a new auth system slice.</td>
+                <td>Document that MVP email verification is handled by WorkOS; revisit for self-managed auth or future player accounts.</td>
+              </tr>
+              <tr>
+                <td><span class="pill review">P4</span> MVP Readiness</td>
+                <td>Safe PR-6 follow-up.</td>
+                <td>Add mobile/touch QA, red-flag audit notes, known limitations, and explicit PP-030 blockers while keeping PP-030 In Progress.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </article>
+
     </main>
   </div>
 </body>
