@@ -1405,13 +1405,13 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
               <td>P2b Reviewer</td>
               <td><span class="pill review">P2</span></td>
               <td>Code Splitting</td>
-              <td>Dynamic imports for Leaderboard/PendingApproval dialogs, skeleton placeholders</td>
+              <td>Dynamic imports for Leaderboard/PendingApproval dialogs, skeleton placeholders; deferred for MVP unless measured performance need appears.</td>
             </tr>
             <tr>
               <td>P3 Reviewer</td>
               <td><span class="pill todo">P3</span></td>
               <td>Email Verification</td>
-              <td>Resend OTP mutation, cooldown logic, LoginScreen hints, old-code callout, docs</td>
+              <td>Resend OTP mutation, cooldown logic, LoginScreen hints, old-code callout, docs; custom OTP deferred to WorkOS AuthKit for MVP.</td>
             </tr>
             <tr>
               <td>P4 Reviewer</td>
@@ -1585,8 +1585,8 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
 
         <!-- ── P2b ───────────────────────────────────────────── -->
         <section id="report-p2b">
-          <h3><span class="pill blocked">P2b</span> Code Splitting</h3>
-          <p><strong>Status:</strong> ❌ not started</p>
+          <h3><span class="pill todo">P2b</span> Code Splitting</h3>
+          <p><strong>Status:</strong> deferred for MVP</p>
 
           <h4>What exists</h4>
           <ul>
@@ -1609,12 +1609,15 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
             <li>PendingApproval requires full-stack implementation — not purely a code-splitting task.</li>
             <li>Without shared skeleton primitives, each dynamic import will duplicate placeholder JSX.</li>
           </ul>
+
+          <h4>Resolution</h4>
+          <p>Deferred in <a href="https://github.com/JohnPevien/pickle-point/pull/34">PR #34</a>. The QR renderer is already dynamically loaded, the live leaderboard is small and route-local, and <code>PendingApproval</code> is not an MVP feature yet.</p>
         </section>
 
         <!-- ── P3 ────────────────────────────────────────────── -->
         <section id="report-p3">
-          <h3><span class="pill blocked">P3</span> Email Verification</h3>
-          <p><strong>Status:</strong> ❌ not started</p>
+          <h3><span class="pill todo">P3</span> Email Verification</h3>
+          <p><strong>Status:</strong> deferred / N/A for MVP with WorkOS hosted auth</p>
 
           <h4>What exists</h4>
           <ul>
@@ -1642,6 +1645,9 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
             <li>No <code>emailVerified</code> field on <code>users</code> table — can't gate functionality behind verified email.</li>
             <li><code>players</code> table also lacks verification fields for future player accounts.</li>
           </ul>
+
+          <h4>Resolution</h4>
+          <p>Deferred in <a href="https://github.com/JohnPevien/pickle-point/pull/34">PR #34</a>. MVP Game Master email verification is delegated to WorkOS AuthKit's hosted authentication flow; app-owned OTP, resend cooldowns, and custom login UI are future self-managed-auth work.</p>
         </section>
 
         <!-- ── P4 ────────────────────────────────────────────── -->
@@ -1687,8 +1693,8 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
               <tr><td><span class="pill review">P1a</span> Tournament Admin</td><td>⚠️ partial</td><td>Core CRUD + bracket + scoring done. Missing: delete, drag-reorder, user list page, edit mutation.</td></tr>
               <tr><td><span class="pill ready">P1b</span> Open Play Match Adjust</td><td>✅ done</td><td>Complete. All four operations end-to-end with tests.</td></tr>
               <tr><td><span class="pill review">P2a</span> Docs &amp; Branding</td><td>⚠️ partial</td><td>Branding done, accessibility adequate. JSDoc at 52% — 24 exports uncovered.</td></tr>
-              <tr><td><span class="pill blocked">P2b</span> Code Splitting</td><td>❌ not started</td><td>No dynamic imports for app code. PendingApproval component doesn't exist.</td></tr>
-              <tr><td><span class="pill blocked">P3</span> Email Verification</td><td>❌ not started</td><td>Potentially N/A — WorkOS handles verification. If custom needed, full implementation gap.</td></tr>
+              <tr><td><span class="pill todo">P2b</span> Code Splitting</td><td>deferred</td><td>Existing QR split is enough for MVP; PendingApproval does not exist.</td></tr>
+              <tr><td><span class="pill todo">P3</span> Email Verification</td><td>deferred / N/A</td><td>WorkOS hosted AuthKit owns MVP email verification; custom OTP is future auth work.</td></tr>
               <tr><td><span class="pill review">P4</span> MVP Readiness</td><td>⚠️ partial</td><td>Landing page, README, QA checklist done. Missing: red-flag audit, mobile QA, formal closure.</td></tr>
             </tbody>
           </table>
@@ -1722,12 +1728,12 @@ git commit -m &quot;chore: close mvp readiness pass&quot;</code></pre>
               <tr>
                 <td><span class="pill todo">P2b</span> Code Splitting</td>
                 <td>Deferred for MVP. Existing QR dependency split is enough; PendingApproval does not exist.</td>
-                <td>Record deferral in context/docs. Revisit only with measured bundle pain or a real PendingApproval feature.</td>
+                <td>Deferral recorded in <a href="https://github.com/JohnPevien/pickle-point/pull/34">PR #34</a>. Revisit only with measured bundle pain or a real PendingApproval feature.</td>
               </tr>
               <tr>
                 <td><span class="pill todo">P3</span> Email Verification</td>
                 <td>Deferred to WorkOS hosted AuthKit for MVP. Custom OTP would be a new auth system slice.</td>
-                <td>Document that MVP email verification is handled by WorkOS; revisit for self-managed auth or future player accounts.</td>
+                <td>Deferral recorded in <a href="https://github.com/JohnPevien/pickle-point/pull/34">PR #34</a>. Revisit for self-managed auth or future player accounts.</td>
               </tr>
               <tr>
                 <td><span class="pill review">P4</span> MVP Readiness</td>
