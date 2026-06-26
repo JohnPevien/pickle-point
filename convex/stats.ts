@@ -11,6 +11,9 @@ function clampInt(value: number, min: number, max: number) {
   return Math.min(Math.max(Math.trunc(value), min), max);
 }
 
+/**
+ * Builds a tenant leaderboard from recent stats snapshots, ranked by wins and point differential.
+ */
 export const getLeaderboard = query({
   args: {
     tenantId: v.id("tenants"),

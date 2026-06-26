@@ -255,6 +255,9 @@ const skillLevelValidator = v.union(
   v.literal("Advanced")
 );
 
+/**
+ * Fetches a single registered player by ID.
+ */
 export const getById = query({
   args: { playerId: v.id("players") },
   handler: async (ctx, args) => {
@@ -262,6 +265,9 @@ export const getById = query({
   },
 });
 
+/**
+ * Creates a player profile in a tenant workspace after validating required names and contact uniqueness.
+ */
 export const createPlayer = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -324,6 +330,9 @@ export const createPlayer = mutation({
   },
 });
 
+/**
+ * Updates editable player profile fields while preserving tenant ownership and contact uniqueness.
+ */
 export const updatePlayer = mutation({
   args: {
     tenantId: v.id("tenants"),
@@ -408,6 +417,9 @@ export const updatePlayer = mutation({
   },
 });
 
+/**
+ * Deletes a player only when no sessions, tournament entries, match history, or stats still reference them.
+ */
 export const deletePlayer = mutation({
   args: { tenantId: v.id("tenants"), playerId: v.id("players") },
   handler: async (ctx, args) => {
@@ -427,6 +439,9 @@ export const deletePlayer = mutation({
   },
 });
 
+/**
+ * Aggregates a player's recent stats snapshots over a bounded day window.
+ */
 export const getPlayerStats = query({
   args: {
     playerId: v.id("players"),
