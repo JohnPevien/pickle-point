@@ -1,3 +1,7 @@
+---
+title: Unified Development Command
+---
+
 # Unified Development Command
 
 ## Goal

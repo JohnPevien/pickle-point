@@ -55,17 +55,20 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
    - `WORKOS_COOKIE_PASSWORD` - AuthKit session cookie secret, at least 32 characters.
    - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` - AuthKit callback URL, usually `http://localhost:3000/callback`.
 
-4. Start Convex during backend work:
+4. Start the Convex backend watcher and Next.js development server:
 
    ```bash
-   pnpm exec convex dev
+   pnpm dev
    ```
 
 ## Running the Project
 
 ```bash
-# Development server
+# Convex backend and Next.js frontend
 pnpm dev
+
+# Next.js frontend only
+pnpm dev:frontend
 
 # Build for production
 pnpm build

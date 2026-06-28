@@ -1,9 +1,9 @@
-import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import { WorkspaceSetupForm } from "@/components/setup/WorkspaceSetupForm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { requireWorkosAuth } from "@/lib/auth/server";
 import { canBypassWorkosAuth, hasWorkosAuthConfig } from "@/lib/auth/workos";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ export default async function SetupPage() {
     return redirect("/sign-in");
   }
 
-  const auth = await withAuth({ ensureSignedIn: true });
+  const auth = await requireWorkosAuth();
 
   let currentWorkspace: Awaited<ReturnType<typeof fetchQuery>> | null = null;
   try {

@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "../../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { requireWorkosAuth } from "@/lib/auth/server";
 import { canBypassWorkosAuth, hasWorkosAuthConfig } from "@/lib/auth/workos";
 
 export default async function AdminLayout({
@@ -32,7 +32,7 @@ export default async function AdminLayout({
     notFound();
   }
 
-  const auth = await withAuth({ ensureSignedIn: true });
+  const auth = await requireWorkosAuth();
 
   const user = await fetchQuery(
     api.users.getCurrentUser,

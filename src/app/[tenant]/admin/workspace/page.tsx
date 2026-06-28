@@ -1,15 +1,15 @@
-import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchQuery } from "convex/nextjs";
 import { notFound } from "next/navigation";
 import { api } from "../../../../../convex/_generated/api";
 import { WorkspaceSettingsForm } from "@/components/admin/WorkspaceSettingsForm";
+import { requireWorkosAuth } from "@/lib/auth/server";
 import { canBypassWorkosAuth, hasWorkosAuthConfig } from "@/lib/auth/workos";
 
 export const dynamic = "force-dynamic";
 
 async function getAuthorizedWorkspace(tenant: string) {
   if (hasWorkosAuthConfig(process.env)) {
-    const auth = await withAuth({ ensureSignedIn: true });
+    const auth = await requireWorkosAuth();
     const currentWorkspace = await fetchQuery(
       api.tenants.getCurrentWorkspace,
       {},

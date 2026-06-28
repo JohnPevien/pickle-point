@@ -29,10 +29,20 @@ const navigationMocks = vi.hoisted(() => ({
   redirect: vi.fn((url: string) => ({ kind: "redirect", url })),
 }));
 
+const nextHeadersMocks = vi.hoisted(() => ({
+  headers: vi.fn(),
+}));
+
+const convexMocks = vi.hoisted(() => ({
+  fetchQuery: vi.fn(),
+}));
+
 vi.mock("@workos-inc/authkit-nextjs", () => authkitMocks);
+vi.mock("convex/nextjs", () => convexMocks);
 vi.mock("fumadocs-core/search/server", () => docsSearchMocks);
 vi.mock("@/lib/source", () => ({ source: {} }));
 vi.mock("next/navigation", () => navigationMocks);
+vi.mock("next/headers", () => nextHeadersMocks);
 
 const workosEnvKeys = [
   "NODE_ENV",
@@ -96,6 +106,9 @@ beforeEach(() => {
   docsSearchMocks.createFromSource.mockReturnValue({ GET: docsSearchMocks.searchGet });
   navigationMocks.redirect.mockReset();
   navigationMocks.redirect.mockImplementation((url: string) => ({ kind: "redirect", url }));
+  nextHeadersMocks.headers.mockReset();
+  nextHeadersMocks.headers.mockResolvedValue(new Headers());
+  convexMocks.fetchQuery.mockReset();
 
   restoreWorkosEnv();
 });
@@ -105,11 +118,35 @@ describe("AuthKit page routes", () => {
     authkitMocks.getSignInUrl.mockResolvedValue("https://workos.example.com/sign-in");
 
     const { GET } = await import("../../app/sign-in/route");
-    const result = await GET();
+    const result = await GET(new Request("https://app.example.com/sign-in"));
 
     expect(authkitMocks.getSignInUrl).toHaveBeenCalledTimes(1);
     expect(navigationMocks.redirect).toHaveBeenCalledWith("https://workos.example.com/sign-in");
     expect(result).toEqual({ kind: "redirect", url: "https://workos.example.com/sign-in" });
+  });
+
+  test("preserves a local return path when starting sign-in", async () => {
+    authkitMocks.getSignInUrl.mockResolvedValue("https://workos.example.com/sign-in");
+
+    const { GET } = await import("../../app/sign-in/route");
+    await GET(new Request("https://app.example.com/sign-in?returnTo=%2Fsetup%3Ftheme%3Dgaming"));
+
+    expect(authkitMocks.getSignInUrl).toHaveBeenCalledWith({
+      returnTo: "/setup?theme=gaming",
+    });
+  });
+
+  test("does not preserve an external return destination", async () => {
+    authkitMocks.getSignInUrl.mockResolvedValue("https://workos.example.com/sign-in");
+
+    const { GET } = await import("../../app/sign-in/route");
+    await GET(
+      new Request(
+        "https://app.example.com/sign-in?returnTo=https%3A%2F%2Fevil.example.com%2Fsteal",
+      ),
+    );
+
+    expect(authkitMocks.getSignInUrl).toHaveBeenCalledWith({});
   });
 
   test("redirects sign-up requests to the WorkOS authorization URL", async () => {
@@ -128,6 +165,34 @@ describe("AuthKit page routes", () => {
 
     expect(authkitMocks.handleAuth).toHaveBeenCalledTimes(1);
     expect(GET).toBe(authkitMocks.callbackHandler);
+  });
+});
+
+describe("setup page authentication", () => {
+  test("sends a logged-out user through the sign-in route without asking AuthKit to redirect during render", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    authkitMocks.withAuth.mockImplementation(async (options?: { ensureSignedIn?: boolean }) => {
+      if (options?.ensureSignedIn) {
+        throw new Error("Cookies can only be modified in a Server Action or Route Handler.");
+      }
+
+      return { user: null };
+    });
+    nextHeadersMocks.headers.mockResolvedValue(
+      new Headers({ "x-url": "https://app.example.com/setup?theme=gaming" }),
+    );
+    navigationMocks.redirect.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
+
+    const { default: SetupPage } = await import("../../app/setup/page");
+
+    await expect(SetupPage()).rejects.toThrow("NEXT_REDIRECT");
+    expect(authkitMocks.withAuth).toHaveBeenCalledWith();
+    expect(navigationMocks.redirect).toHaveBeenCalledWith(
+      "/sign-in?returnTo=%2Fsetup%3Ftheme%3Dgaming",
+    );
+    expect(convexMocks.fetchQuery).not.toHaveBeenCalled();
   });
 });
 
