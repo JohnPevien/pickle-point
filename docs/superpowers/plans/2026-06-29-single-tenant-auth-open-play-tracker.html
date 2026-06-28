@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tenant Auth & Open Play Progress Tracker | Pickle Point</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070907;
+      --surface: #0d120f;
+      --surface-2: #121a15;
+      --line: #243029;
+      --ink: #edf4ef;
+      --muted: #99aa9f;
+      --accent: #b8f24a;
+      --accent-2: #70dc9a;
+      --blue: #79c6ff;
+      --amber: #f6c761;
+      --red: #ff7d8d;
+      --shadow: rgba(0, 0, 0, .34);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% -10%, rgba(184, 242, 74, .13), transparent 28rem),
+        radial-gradient(circle at 92% 8%, rgba(112, 220, 154, .08), transparent 24rem),
+        var(--bg);
+      color: var(--ink);
+      font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, select, textarea { font: inherit; }
+    button, select, input, textarea { color: var(--ink); }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    .app { max-width: 1480px; margin: 0 auto; padding: 30px clamp(16px, 3vw, 46px) 80px; }
+    .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 28px; }
+    .eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; margin: 0 0 8px; }
+    h1 { margin: 0; max-width: 920px; font-size: clamp(32px, 5vw, 62px); line-height: 1.02; letter-spacing: -.045em; }
+    .lede { color: var(--muted); max-width: 780px; margin: 16px 0 0; font-size: 16px; }
+    .doc-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 240px; }
+    .button, button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 9px 12px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color .15s, transform .15s, background .15s;
+    }
+    button:hover, .button:hover { border-color: var(--accent-2); transform: translateY(-1px); }
+    button.danger:hover { border-color: var(--red); }
+    .summary { display: grid; grid-template-columns: minmax(250px, 1.6fr) repeat(4, minmax(130px, .7fr)); gap: 12px; margin: 26px 0; }
+    .card { border: 1px solid var(--line); border-radius: 12px; background: rgba(13, 18, 15, .9); padding: 17px; box-shadow: 0 14px 32px var(--shadow); }
+    .metric-label { color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 10px; font-weight: 800; }
+    .metric-value { margin-top: 7px; font-size: 28px; line-height: 1; font-weight: 780; letter-spacing: -.03em; }
+    .progress-track { height: 10px; background: #1a231d; border-radius: 999px; overflow: hidden; margin-top: 16px; }
+    .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .25s ease; }
+    .controls { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; gap: 10px; padding: 12px; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 10px; background: rgba(7, 9, 7, .92); backdrop-filter: blur(14px); }
+    input, select, textarea { width: 100%; border: 1px solid var(--line); border-radius: 7px; background: #090d0b; padding: 8px 10px; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(112, 220, 154, .08); }
+    .phase { margin: 18px 0; border: 1px solid var(--line); border-radius: 12px; background: rgba(13, 18, 15, .8); overflow: hidden; }
+    .phase-head { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; padding: 18px 20px; background: linear-gradient(90deg, rgba(184,242,74,.05), transparent); }
+    .phase h2 { margin: 0; font-size: 21px; letter-spacing: -.02em; }
+    .phase p { color: var(--muted); margin: 5px 0 0; }
+    .phase-count { font-weight: 800; color: var(--accent); white-space: nowrap; }
+    .tasks { border-top: 1px solid var(--line); }
+    .task { display: grid; grid-template-columns: 28px minmax(240px, 1.3fr) 140px minmax(150px, .65fr) minmax(150px, .65fr) minmax(180px, .9fr); gap: 10px; align-items: start; padding: 14px 18px; border-bottom: 1px solid rgba(36,48,41,.72); }
+    .task:last-child { border-bottom: 0; }
+    .task:hover { background: rgba(255,255,255,.018); }
+    .task.done .task-title { text-decoration: line-through; color: var(--muted); }
+    .task-check { appearance: none; width: 20px; height: 20px; margin: 6px 0 0; border: 1px solid #516159; border-radius: 5px; background: #070a08; cursor: pointer; }
+    .task-check:checked { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 4px #111710; }
+    .task-id { display: inline-block; color: var(--accent-2); font: 700 11px/1.2 ui-monospace, monospace; letter-spacing: .04em; margin-bottom: 5px; }
+    .task-title { font-weight: 760; }
+    .task-deps { color: var(--muted); font-size: 12px; margin-top: 5px; }
+    .field-label { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 9px; font-weight: 800; margin: 0 0 4px; }
+    textarea { min-height: 64px; resize: vertical; }
+    .status-not_started { color: var(--muted); }
+    .status-in_progress { color: var(--blue); }
+    .status-blocked { color: var(--red); }
+    .status-review { color: var(--amber); }
+    .status-done { color: var(--accent); }
+    .gate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
+    .gate { border-left: 3px solid var(--amber); }
+    .gate strong { display: block; margin-bottom: 5px; }
+    .gate span { color: var(--muted); font-size: 13px; }
+    .hidden { display: none !important; }
+    .footer-note { color: var(--muted); margin-top: 22px; text-align: center; font-size: 12px; }
+    #import-file { display: none; }
+    @media (max-width: 1100px) {
+      .summary { grid-template-columns: repeat(2, 1fr); }
+      .summary .progress-card { grid-column: 1 / -1; }
+      .task { grid-template-columns: 28px 1fr 160px; }
+      .task > :nth-child(n+4) { grid-column: 2 / -1; }
+    }
+    @media (max-width: 700px) {
+      .topbar { display: block; }
+      .doc-links { justify-content: flex-start; margin-top: 18px; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .controls { position: static; grid-template-columns: 1fr; }
+      .task { grid-template-columns: 28px 1fr; }
+      .task > :nth-child(n+3) { grid-column: 2; }
+    }
+    @media print {
+      body { background: #fff; color: #111; }
+      .app { max-width: none; padding: 0; }
+      .controls, .doc-links { display: none; }
+      .card, .phase { box-shadow: none; background: #fff; border-color: #bbb; }
+      input, select, textarea { border-color: #ccc; color: #111; background: #fff; }
+      .task { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Pickle Point · Implementation Control</p>
+        <h1>Tenant Auth & Open Play Progress Tracker</h1>
+        <p class="lede">Thirty-nine dependency-ordered tasks across eight phases. Progress, ownership, branches, and evidence stay in this browser unless exported.</p>
+      </div>
+      <nav class="doc-links" aria-label="Planning documents">
+        <a class="button" href="../specs/2026-06-29-single-tenant-auth-player-open-play-design.md">Design spec</a>
+        <a class="button" href="2026-06-29-single-tenant-auth-open-play-implementation.md">Worker plan</a>
+      </nav>
+    </header>
+
+    <section class="summary" aria-label="Progress summary">
+      <div class="card progress-card">
+        <span class="metric-label">Overall completion</span>
+        <div class="metric-value" id="progress-label">0%</div>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+      <div class="card"><span class="metric-label">Tasks done</span><div class="metric-value" id="done-count">0</div></div>
+      <div class="card"><span class="metric-label">In progress</span><div class="metric-value" id="active-count">0</div></div>
+      <div class="card"><span class="metric-label">Blocked</span><div class="metric-value" id="blocked-count">0</div></div>
+      <div class="card"><span class="metric-label">Total tasks</span><div class="metric-value" id="total-count">39</div></div>
+    </section>
+
+    <section class="controls" aria-label="Tracker controls">
+      <input id="search" type="search" placeholder="Search tasks, phases, owners, or branches…">
+      <select id="status-filter" aria-label="Filter by status">
+        <option value="all">All statuses</option>
+        <option value="not_started">Not started</option>
+        <option value="in_progress">In progress</option>
+        <option value="blocked">Blocked</option>
+        <option value="review">Review</option>
+        <option value="done">Done</option>
+      </select>
+      <div>
+        <button id="export" type="button">Export JSON</button>
+        <button id="import" type="button">Import</button>
+        <button id="reset" class="danger" type="button">Reset</button>
+        <input id="import-file" type="file" accept="application/json">
+      </div>
+    </section>
+
+    <section id="phase-list"></section>
+
+    <section class="card">
+      <p class="eyebrow">Review gates</p>
+      <div class="gate-grid">
+        <div class="card gate"><strong>Gate 1 · API contract</strong><span>After Phase 1: schema, indexes, helper signatures, and migrations reviewed.</span></div>
+        <div class="card gate"><strong>Gate 2 · Security</strong><span>After Phase 3: every Convex function classified and cross-tenant tests passing.</span></div>
+        <div class="card gate"><strong>Gate 3 · Product flow</strong><span>After Phase 4: owner, Game Master, and player onboarding accepted.</span></div>
+        <div class="card gate"><strong>Gate 4 · Integrity</strong><span>After Phase 6: concurrency, scoring, correction, privacy, and realtime evidence accepted.</span></div>
+        <div class="card gate"><strong>Gate 5 · Production</strong><span>Phase 7 staging migration evidence and owner sign-off required before rollout.</span></div>
+      </div>
+    </section>
+    <p class="footer-note">Storage key: <code>pickle-point-tenant-auth-open-play-v1</code>. Export regularly when coordinating multiple workers.</p>
+  </main>
+
+  <script>
+    const STORAGE_KEY = "pickle-point-tenant-auth-open-play-v1";
+    const phases = [
+      { id: "0", title: "Phase 0 · Baseline", outcome: "Clean reviewed starting point and complete access inventory.", tasks: [
+        ["0.1", "Preserve and review current auth/dev changes", "none"],
+        ["0.2", "Create the Convex function access inventory", "0.1"]
+      ]},
+      { id: "1", title: "Phase 1 · Tenancy foundation", outcome: "Widened schema, membership projection, central authorization, and fixed tenant.", tasks: [
+        ["1.1", "Widen tenant, user, membership, audit, and webhook schema", "0.2"],
+        ["1.2", "Add identity and role authorization helpers", "1.1"],
+        ["1.3", "Add idempotent user and membership reconciliation", "1.2"],
+        ["1.4", "Add fixed-tenant bootstrap and slug resolution", "1.1"],
+        ["1.5", "Backfill current users into memberships", "1.3, 1.4"]
+      ]},
+      { id: "2", title: "Phase 2 · WorkOS lifecycle", outcome: "WorkOS organization changes reconcile safely and public setup is removed.", tasks: [
+        ["2.1", "Add direct WorkOS SDK and webhook configuration", "1.1"],
+        ["2.2", "Verify and ingest WorkOS webhooks", "2.1, 1.3"],
+        ["2.3", "Reconcile membership on callback/login", "1.3, 2.1"],
+        ["2.4", "Remove public workspace creation", "1.4, 2.3"]
+      ]},
+      { id: "3", title: "Phase 3 · Backend authorization", outcome: "Every Convex domain has explicit public/player/Game Master/owner boundaries.", tasks: [
+        ["3.1", "Protect tenant and venue functions", "1.2, 2.3"],
+        ["3.2", "Protect player and statistics functions", "1.2, 2.3"],
+        ["3.3", "Protect open-play reads and lifecycle", "1.2, 2.3"],
+        ["3.4", "Protect open-play queue, match, and score mutations", "3.3"],
+        ["3.5", "Protect tournament functions", "1.2, 2.3"],
+        ["3.6", "Enforce access-matrix completeness in CI", "3.1–3.5"]
+      ]},
+      { id: "4", title: "Phase 4 · Player workspace", outcome: "Verified players join by slug, complete profiles, and use a tenant dashboard.", tasks: [
+        ["4.1", "Widen and backfill account-backed player profiles", "3.2"],
+        ["4.2", "Provision player membership and profile idempotently", "4.1, 1.3"],
+        ["4.3", "Convert tenant routing from raw ID to slug", "1.4, 2.4"],
+        ["4.4", "Build public tenant home and profile completion", "4.2, 4.3"],
+        ["4.5", "Build the player dashboard", "4.2, 4.3"],
+        ["4.6", "Add collision-aware display names", "4.1"]
+      ]},
+      { id: "5", title: "Phase 5 · Participation lifecycle", outcome: "Events support scheduling, RSVP, GM check-in, walk-ins, no-shows, and participant-based matches.", tasks: [
+        ["5.1", "Widen open-play scheduling and court schema", "3.3, 4.3"],
+        ["5.2", "Add session participants and legacy compatibility", "4.1, 5.1"],
+        ["5.3", "Add player RSVP and withdrawal", "4.5, 5.2"],
+        ["5.4", "Add Game Master check-in and walk-ins", "5.2, 3.4"],
+        ["5.5", "Finalize no-shows idempotently", "5.3, 5.4"],
+        ["5.6", "Widen match slots for participants and anonymous filler", "5.2, 3.4"]
+      ]},
+      { id: "6", title: "Phase 6 · Live operations", outcome: "Concurrency-safe courts, scoring, statistics, and public realtime event views.", tasks: [
+        ["6.1", "Make court allocation and match generation concurrency-safe", "5.6"],
+        ["6.2", "Add deterministic event statistics and scoring", "6.1"],
+        ["6.3", "Audit corrections, substitutions, cancellation, and completion", "6.2"],
+        ["6.4", "Add safe public event projections", "6.2, 4.6"],
+        ["6.5", "Build public live, queue, and leaderboard pages", "6.4, 4.3"],
+        ["6.6", "Finalize registered-player career statistics", "6.2, 4.1"]
+      ]},
+      { id: "7", title: "Phase 7 · Rollout", outcome: "Idempotent production migration, compatibility switch, cleanup, and owner sign-off.", tasks: [
+        ["7.1", "Add canonical production migration configuration and audit", "1.5, 4.1, 5.2, 5.6"],
+        ["7.2", "Execute bounded backfills in staging", "7.1, 6.6"],
+        ["7.3", "Switch compatibility reads/writes and narrow later", "7.2"],
+        ["7.4", "Run the final security and workflow gate", "7.3, 3.6, 6.5"]
+      ]}
+    ];
+
+    const defaults = Object.fromEntries(phases.flatMap(phase => phase.tasks.map(([id]) => [id, {
+      status: "not_started", owner: "", branch: "", evidence: ""
+    }])));
+
+    function normalizeState(candidate = {}) {
+      const normalized = structuredClone(defaults);
+      Object.keys(normalized).forEach(id => {
+        if (candidate[id] && typeof candidate[id] === "object") {
+          normalized[id] = { ...normalized[id], ...candidate[id] };
+        }
+      });
+      return normalized;
+    }
+
+    function loadState() {
+      try {
+        return normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"));
+      } catch {
+        return structuredClone(defaults);
+      }
+    }
+
+    let state = loadState();
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      updateSummary();
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+    }
+
+    function taskMarkup(id, title, deps) {
+      const item = state[id] || defaults[id];
+      return `<div class="task ${item.status === "done" ? "done" : ""}" data-id="${id}" data-search="${escapeHtml(`${id} ${title} ${deps} ${item.owner} ${item.branch}`.toLowerCase())}">
+        <input class="task-check" type="checkbox" aria-label="Complete ${escapeHtml(id)}" ${item.status === "done" ? "checked" : ""}>
+        <div><span class="task-id">TASK ${escapeHtml(id)}</span><div class="task-title">${escapeHtml(title)}</div><div class="task-deps">Depends on: ${escapeHtml(deps)}</div></div>
+        <div><label class="field-label">Status</label><select class="status status-${item.status}">
+          <option value="not_started" ${item.status === "not_started" ? "selected" : ""}>Not started</option>
+          <option value="in_progress" ${item.status === "in_progress" ? "selected" : ""}>In progress</option>
+          <option value="blocked" ${item.status === "blocked" ? "selected" : ""}>Blocked</option>
+          <option value="review" ${item.status === "review" ? "selected" : ""}>Review</option>
+          <option value="done" ${item.status === "done" ? "selected" : ""}>Done</option>
+        </select></div>
+        <div><label class="field-label">Owner</label><input class="owner" value="${escapeHtml(item.owner)}" placeholder="worker / person"></div>
+        <div><label class="field-label">Branch / PR</label><input class="branch" value="${escapeHtml(item.branch)}" placeholder="branch or URL"></div>
+        <div><label class="field-label">Evidence / blocker</label><textarea class="evidence" placeholder="tests, commit, review, blocker…">${escapeHtml(item.evidence)}</textarea></div>
+      </div>`;
+    }
+
+    function render() {
+      const list = document.getElementById("phase-list");
+      list.innerHTML = phases.map(phase => {
+        const complete = phase.tasks.filter(([id]) => state[id]?.status === "done").length;
+        return `<section class="phase" data-phase="${phase.id}">
+          <header class="phase-head"><div><h2>${escapeHtml(phase.title)}</h2><p>${escapeHtml(phase.outcome)}</p></div><div class="phase-count">${complete}/${phase.tasks.length}</div></header>
+          <div class="tasks">${phase.tasks.map(task => taskMarkup(...task)).join("")}</div>
+        </section>`;
+      }).join("");
+      bindTaskEvents();
+      applyFilters();
+      updateSummary();
+    }
+
+    function bindTaskEvents() {
+      document.querySelectorAll(".task").forEach(row => {
+        const id = row.dataset.id;
+        row.querySelector(".task-check").addEventListener("change", event => {
+          state[id].status = event.target.checked ? "done" : "not_started";
+          saveState(); render();
+        });
+        row.querySelector(".status").addEventListener("change", event => {
+          state[id].status = event.target.value;
+          saveState(); render();
+        });
+        ["owner", "branch", "evidence"].forEach(field => {
+          row.querySelector(`.${field}`).addEventListener("input", event => {
+            state[id][field] = event.target.value;
+            saveState();
+          });
+        });
+      });
+    }
+
+    function updateSummary() {
+      const values = Object.values(state);
+      const done = values.filter(item => item.status === "done").length;
+      const active = values.filter(item => item.status === "in_progress" || item.status === "review").length;
+      const blocked = values.filter(item => item.status === "blocked").length;
+      const total = Object.keys(defaults).length;
+      const percent = Math.round((done / total) * 100);
+      document.getElementById("done-count").textContent = done;
+      document.getElementById("active-count").textContent = active;
+      document.getElementById("blocked-count").textContent = blocked;
+      document.getElementById("total-count").textContent = total;
+      document.getElementById("progress-label").textContent = `${percent}%`;
+      document.getElementById("progress-fill").style.width = `${percent}%`;
+    }
+
+    function applyFilters() {
+      const query = document.getElementById("search").value.trim().toLowerCase();
+      const status = document.getElementById("status-filter").value;
+      document.querySelectorAll(".phase").forEach(phase => {
+        let visible = 0;
+        phase.querySelectorAll(".task").forEach(row => {
+          const item = state[row.dataset.id];
+          const searchable = `${row.dataset.search} ${item.owner} ${item.branch} ${item.evidence}`.toLowerCase();
+          const matches = (!query || searchable.includes(query)) && (status === "all" || item.status === status);
+          row.classList.toggle("hidden", !matches);
+          if (matches) visible += 1;
+        });
+        phase.classList.toggle("hidden", visible === 0);
+      });
+    }
+
+    document.getElementById("search").addEventListener("input", applyFilters);
+    document.getElementById("status-filter").addEventListener("change", applyFilters);
+    document.getElementById("export").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), state }, null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `pickle-point-progress-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+    document.getElementById("import").addEventListener("click", () => document.getElementById("import-file").click());
+    document.getElementById("import-file").addEventListener("change", async event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        state = normalizeState(parsed.state || parsed);
+        saveState(); render();
+      } catch {
+        alert("That file is not a valid tracker export.");
+      }
+      event.target.value = "";
+    });
+    document.getElementById("reset").addEventListener("click", () => {
+      if (!confirm("Reset every task, owner, branch, and evidence field?")) return;
+      state = structuredClone(defaults);
+      saveState(); render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
