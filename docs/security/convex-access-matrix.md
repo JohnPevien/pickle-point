@@ -153,3 +153,14 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
 - **`tenants.createWorkspace`** is removed in Task 2.4 (self-service creation
   is a locked non-goal); it is inventoried here only because it still exists in
   the baseline.
+
+## Phase 2 additions
+
+| Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
+|---|---|---|---|---|---|---|---|
+| `tenants.findByOrgId` | internalQuery | `internal` | `workosOrganizationId: v.string()` | `args.workosOrganizationId` → `by_workosOrganizationId` | n/a (internal) | tenant doc | — |
+| `tenants.findBySlug` | internalQuery | `internal` | `slug: v.string()` | `args.slug` → `by_slug` | n/a (internal) | tenant doc | — |
+| `workosActions.ingestSignedWebhook` | internalAction | `internal` (Node-only signature verification) | `rawBody`, `signatureHeader`, `expectedOrganizationId` | organization id is matched server-side against canonical `WORKOS_ORGANIZATION_ID` | n/a (server-side, called from `http.ts`) | none — returns `{ status, eventId }` only | — |
+| `workosSync.recordEvent` | internalMutation | `internal` | normalized receipt payload | n/a (writes `workosWebhookReceipts`) | n/a (internal) | none — receipt row only | — |
+| `workosSync.applyEvent` | internalMutation | `internal` | normalized membership event | server-resolved tenant via `by_workosOrganizationId` | n/a (internal; trusted server-side data only) | none — applies user/membership upsert + audit | — |
+| `callback.reconcileWorkosCallback` | internalAction | `internal` | `workosUserId`, `email`, `fullName?`, `organizationId?`, `role`, `tenantSlug?` | canonical WorkOS organization or canonical slug (server-side) | n/a (internal; trusted callback path) | none | — |
