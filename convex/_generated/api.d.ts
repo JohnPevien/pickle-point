@@ -9,6 +9,8 @@
  */
 
 import type * as authzProbe from "../authzProbe.js";
+import type * as callback from "../callback.js";
+import type * as http from "../http.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as migrations_usersToMemberships from "../migrations/usersToMemberships.js";
 import type * as openPlaySessions from "../openPlaySessions.js";
@@ -19,6 +21,8 @@ import type * as tenants from "../tenants.js";
 import type * as tournaments from "../tournaments.js";
 import type * as users from "../users.js";
 import type * as venues from "../venues.js";
+import type * as workosActions from "../workosActions.js";
+import type * as workosSync from "../workosSync.js";
 
 import type {
   ApiFromModules,
@@ -28,6 +32,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   authzProbe: typeof authzProbe;
+  callback: typeof callback;
+  http: typeof http;
   "lib/authz": typeof lib_authz;
   "migrations/usersToMemberships": typeof migrations_usersToMemberships;
   openPlaySessions: typeof openPlaySessions;
@@ -38,6 +44,8 @@ declare const fullApi: ApiFromModules<{
   tournaments: typeof tournaments;
   users: typeof users;
   venues: typeof venues;
+  workosActions: typeof workosActions;
+  workosSync: typeof workosSync;
 }>;
 
 /**
