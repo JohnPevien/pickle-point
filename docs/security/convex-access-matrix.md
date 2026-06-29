@@ -37,13 +37,16 @@ Notation:
 | `tenants.createWorkspace` | mutation | **REMOVE in Task 2.4** (self-service creation is a non-goal) | `workspaceFieldsValidator` | `identity.tokenIdentifier` → user/tenant | n/a — deleted | Returns `{ tenantId, created }`; creates tenant publicly | 2.4 / 3.1 |
 | `tenants.updateWorkspace` | mutation | `owner` (intended) / **token-gated today, no role check** | `tenantId: v.id("tenants")`, workspace fields | `args.tenantId` compared to `currentUser.user.tenantId` | `requireOwner(ctx, args.tenantId)` | Accepts client `tenantId`; only user-tenant match (not owner role) | 3.1 |
 | `tenants.seed` | internalMutation | `internal` | `name`, colors, `contactEmail` | n/a (dev seed) | internal only | n/a | — (internal, stays internal) |
+| `tenants.getPublicBySlug` | query | `public_read` | `slug: v.string()` | `args.slug` → `by_slug` (returns `null` for non-`active`) | n/a (public projection; no private fields) | Safe projection: slug, name, timezone, contactEmail, optional logo/colors. Omits `workosOrganizationId`, `status` | — (safe by construction) |
+| `tenants.bootstrapFixedTenant` | internalMutation | `internal` | `slug`, `name`, `contactEmail`, `timezone`, `workosOrganizationId`, optional colors/logo | Idempotent by (slug, workosOrganizationId); rejects mismatched re-point with `TENANT_MISMATCH` | n/a (operator invoked; not a user auth surface) | Creates/updates tenant; writes `auditLogs` row tagged `tenant.bootstrap` | — |
 
 ## users.ts
 
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
 | `users.getCurrentUser` | query | `player` (intended) / **token-gated today, no membership check** | `{}` | `identity.tokenIdentifier` → `by_tokenIdentifier` | `requireAuthenticatedUser` then membership projection | Returns full user doc incl. `email`, `name`, `tokenIdentifier` | 3.1 (identity) / 1.3 (reconciliation) |
-| `users.getOrCreateUser` | internalMutation | `internal` | `tokenIdentifier`, `email`, `name?`, `tenantId` | `args.tenantId` | internal only (called by trusted reconciliation, Task 1.3) | n/a — internal | 1.3 |
+| `users.getOrCreateUser` | internalMutation | `internal` | `tokenIdentifier`, `email`, `name?`, `tenantId` | `args.tenantId` | internal only (called by trusted reconciliation, Task 1.3) | n/a — internal |
+| `users.reconcileUserAndMembership` | internalMutation | `internal` (Phase 1.3) | `tokenIdentifier`, `workosUserId`, `email`, `fullName?`, `tenantId`, `role`, `workosOrganizationMembershipId?` | Upserts user by `tokenIdentifier` (never by email); upserts membership by (`tenantId`,`userId`) | n/a (internal) — caller is the WorkOS callback handler (Phase 2) | Writes `auditLogs` row tagged `user.reconcile`. Trusts the supplied role claim from WorkOS; preserves explicit local suspensions. | — | 1.3 |
 
 ## venues.ts
 
@@ -71,6 +74,25 @@ Notation:
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
 | `stats.getLeaderboard` | query | `public_read` (intended) / **unauthenticated today, returns names** | `tenantId`, `limit?`, `windowDays?` | `args.tenantId` (client-supplied) | Public projection; safe fields only | Returns `firstName`/`lastName` (must become display name with collision disambiguation, Task 4.6) | 3.2 + 4.6 |
+
+## authzProbe.ts (test harness only)
+
+Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-test. They are **not** part of the public app surface (registered as `internalQuery`, so unreachable from the browser) and will be deleted once Phase 3 hardens authorization into real functions. They are listed here so the matrix remains a complete inventory.
+
+| Function | Kind | Access | Args | Tenant path | Helper | Private fields returned | Phase 3 task |
+|---|---|---|---|---|---|---|---|
+| `authzProbe.requireAuthenticatedUserProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | none | `requireAuthenticatedUser` | none | — |
+| `authzProbe.requireTenantMembershipProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requireTenantMembership` | returns `{ role, status }` only | — |
+| `authzProbe.requireRoleProbe` | internalQuery | `internal` (test only) | `tenantId`, `allowedRoles`, `requireTrustedWorkOSClaim?` | `args.tenantId` | `requireRole` | returns `{ role }` only | — |
+| `authzProbe.requireOwnerProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requireOwner` | returns `{ role }` only | — |
+| `authzProbe.requirePlayerProfileProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requirePlayerProfile` (currently fails closed pending Task 4.1) | none — fails with `PROFILE_REQUIRED` | — |
+| `authzProbe.requireOwnPlayerProbe` | internalQuery | `internal` (test only) | `playerId: v.id("players")` | `playerId` → `player.tenantId` | `requireOwnPlayer` | none — fails with `FORBIDDEN` for non-admins / cross-tenant | — |
+
+## migrations/usersToMemberships.ts (Phase 1.5)
+
+| Function | Kind | Access | Args | Tenant path | Helper | Private fields returned | Phase 3 task |
+|---|---|---|---|---|---|---|---|
+| `migrations/usersToMemberships.backfillTenant` | internalMutation | `internal` (operator-invoked) | `tenantId`, `ownerEmails`, `gameMasterEmails`, `suspendUnclassified?`, `batchSize?` | Explicit `tenantId` only; never `.first()` across tenants | n/a (internal migration) | n/a — internal; writes `auditLogs` row per membership created | — |
 
 ## openPlaySessions.ts
 
