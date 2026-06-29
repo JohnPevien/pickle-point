@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 type WorkspaceInput = {
   name: string;
@@ -43,6 +43,22 @@ function normalizeHexColor(value: string | undefined) {
     return undefined;
   }
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
+}
+
+/**
+ * Convert a tenant display name into a URL-safe slug. Used during
+ * Phase 1 widening to backfill `tenants.slug` for fixtures created
+ * before the field was required. Phase 1.4 introduces the canonical
+ * fixed-tenant slug; this helper is only a fallback for legacy rows.
+ */
+export function slugifyTenantName(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "tenant";
 }
 
 function normalizeWorkspaceInput(input: WorkspaceInput) {
@@ -171,22 +187,40 @@ export const createWorkspace = mutation({
 
     const tenantId = await ctx.db.insert("tenants", {
       ...normalized.workspace,
+      slug: slugifyTenantName(normalized.workspace.name),
+      timezone: "Asia/Manila",
+      workosOrganizationId: `local_${Date.now()}`,
+      status: "active",
       createdAt: Date.now(),
     });
+
+    const email = identity.email ?? normalized.workspace.contactEmail;
+    const emailNormalized = email.trim().toLowerCase();
+    // The WorkOS AuthKit subject claim is the canonical workosUserId.
+    // Fall back to the token subject segment when unavailable.
+    const workosUserId =
+      identity.subject ?? identity.tokenIdentifier.split("|").pop() ?? identity.tokenIdentifier;
 
     if (existingUser) {
       await ctx.db.patch(existingUser._id, {
         tenantId,
-        email: identity.email ?? normalized.workspace.contactEmail,
-        name: identity.name,
+        email,
+        emailNormalized,
+        workosUserId,
+        fullName: identity.name ?? existingUser.fullName,
+        lastSeenAt: Date.now(),
       });
     } else {
+      const now = Date.now();
       await ctx.db.insert("users", {
         tokenIdentifier: identity.tokenIdentifier,
+        workosUserId,
+        email,
+        emailNormalized,
+        fullName: identity.name,
         tenantId,
-        email: identity.email ?? normalized.workspace.contactEmail,
-        name: identity.name,
-        createdAt: Date.now(),
+        createdAt: now,
+        lastSeenAt: now,
       });
     }
 
@@ -250,10 +284,140 @@ export const seed = internalMutation({
 
     return await ctx.db.insert("tenants", {
       name: args.name,
+      slug: slugifyTenantName(args.name),
+      timezone: "Asia/Manila",
+      workosOrganizationId: `local_seed_${Date.now()}`,
+      status: "active",
       primaryColor: args.primaryColor ?? "#ff007f", // Sleek pink-accent default
       secondaryColor: args.secondaryColor ?? "#000000",
       contactEmail: args.contactEmail,
       createdAt: Date.now(),
     });
+  },
+});
+
+// -------------------------------------------------------------------------
+// Task 1.4: fixed-tenant bootstrap and safe slug resolution
+// -------------------------------------------------------------------------
+
+/**
+ * Safe public projection of a tenant. Used by the public workspace
+ * home (`/{workspaceSlug}`) before login. Internal fields such as
+ * `workosOrganizationId`, `status`, and any future admin-only
+ * configuration are intentionally omitted.
+ */
+export const getPublicBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args): Promise<{
+    _id: Id<"tenants">;
+    slug: string;
+    name: string;
+    timezone: string;
+    contactEmail: string;
+    logoUrl?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+  } | null> => {
+    const tenant = await ctx.db
+      .query("tenants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (!tenant || tenant.status !== "active") {
+      return null;
+    }
+    // A row is only publicly resolvable when it has been bootstrapped
+    // with a slug + timezone. Legacy rows without those fields are
+    // hidden from the public projection until backfilled.
+    if (!tenant.slug || !tenant.timezone) {
+      return null;
+    }
+    return {
+      _id: tenant._id,
+      slug: tenant.slug,
+      name: tenant.name,
+      timezone: tenant.timezone,
+      contactEmail: tenant.contactEmail,
+      logoUrl: tenant.logoUrl,
+      primaryColor: tenant.primaryColor,
+      secondaryColor: tenant.secondaryColor,
+    };
+  },
+});
+
+/**
+ * Phase 1.4 bootstrap. Internally seeds the single fixed tenant row
+ * for the MVP deployment. Re-running with the same slug + WorkOS
+ * organization id is idempotent; mismatched identifiers are rejected
+ * so a stale bootstrap can never silently repoint the canonical
+ * tenant. Selection of the canonical tenant is explicit (by slug +
+ * workosOrganizationId), never by arbitrary first-row order.
+ */
+export const bootstrapFixedTenant = internalMutation({
+  args: {
+    slug: v.string(),
+    name: v.string(),
+    contactEmail: v.string(),
+    timezone: v.string(),
+    workosOrganizationId: v.string(),
+    primaryColor: v.optional(v.string()),
+    secondaryColor: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ tenantId: Id<"tenants">; created: boolean }> => {
+    // 1. Look up by slug first — that's the primary identifier callers
+    //    see in URLs.
+    const bySlug = await ctx.db
+      .query("tenants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (bySlug) {
+      if (bySlug.workosOrganizationId !== args.workosOrganizationId) {
+        throw new Error("TENANT_MISMATCH: slug already bound to a different WorkOS organization");
+      }
+      return { tenantId: bySlug._id, created: false };
+    }
+
+    // 2. Defensive: slug not taken, but WorkOS org already linked?
+    //    Reject so we never silently re-point.
+    const byOrg = await ctx.db
+      .query("tenants")
+      .withIndex("by_workosOrganizationId", (q) =>
+        q.eq("workosOrganizationId", args.workosOrganizationId)
+      )
+      .first();
+    if (byOrg && byOrg.slug !== args.slug) {
+      throw new Error("TENANT_MISMATCH: WorkOS organization already bound to a different slug");
+    }
+
+    // 3. Safe to create.
+    const now = Date.now();
+    const tenantId = await ctx.db.insert("tenants", {
+      slug: args.slug,
+      name: args.name,
+      contactEmail: args.contactEmail,
+      timezone: args.timezone,
+      workosOrganizationId: args.workosOrganizationId,
+      status: "active",
+      primaryColor: args.primaryColor,
+      secondaryColor: args.secondaryColor,
+      logoUrl: args.logoUrl,
+      createdAt: now,
+    });
+
+    await ctx.db.insert("auditLogs", {
+      tenantId,
+      action: "tenant.bootstrap",
+      resourceType: "tenants",
+      resourceId: tenantId,
+      after: JSON.stringify({
+        slug: args.slug,
+        workosOrganizationId: args.workosOrganizationId,
+        timezone: args.timezone,
+      }),
+      createdAt: now,
+    });
+
+    return { tenantId, created: true };
   },
 });
