@@ -841,6 +841,10 @@ describe("Tournaments", () => {
       const otherTenantId = await t.run(async (ctx) => {
         return await ctx.db.insert("tenants", {
           name: "Other Club",
+          slug: "other-club",
+          timezone: "Asia/Manila",
+          workosOrganizationId: "org_other",
+          status: "active",
           contactEmail: "other@club.com",
           createdAt: Date.now(),
         });
@@ -941,6 +945,10 @@ describe("Tournaments", () => {
       const otherTenantId = await t.run(async (ctx) => {
         return await ctx.db.insert("tenants", {
           name: "Other Club",
+          slug: "other-club-2",
+          timezone: "Asia/Manila",
+          workosOrganizationId: "org_other_2",
+          status: "active",
           contactEmail: "other2@club.com",
           createdAt: Date.now(),
         });
@@ -984,6 +992,10 @@ describe("Tournaments", () => {
       const otherTenantId = await t.run(async (ctx) => {
         return await ctx.db.insert("tenants", {
           name: "Other Club",
+          slug: "other-club-3",
+          timezone: "Asia/Manila",
+          workosOrganizationId: "org_other_3",
+          status: "active",
           contactEmail: "other3@club.com",
           createdAt: Date.now(),
         });

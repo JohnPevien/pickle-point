@@ -3,25 +3,135 @@ import { v } from "convex/values";
 
 export default defineSchema({
   // 1. Tenants (Game Master workspaces/venues)
+  //
+  // Phase 1 widening (migration-safe):
+  // - `slug`, `timezone`, `workosOrganizationId`, `status` are all
+  //   OPTIONAL during widening; legacy documents without them remain
+  //   valid. They become required in a later phase after backfill
+  //   confirms all rows are populated.
+  // - Legacy `contactEmail` is retained. The legacy `name` field is
+  //   retained and `name` continues to be the only required display
+  //   field for the basic public listing until the widening-narrowing
+  //   migration completes.
   tenants: defineTable({
     name: v.string(),
+    contactEmail: v.string(),
+    // Required-by-Phase-1.4-once-bootstrapped fields — optional here so
+    // pre-Phase-1.4 documents continue to validate.
+    slug: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    workosOrganizationId: v.optional(v.string()),
+    status: v.optional(v.union(v.literal("active"), v.literal("disabled"))),
     logoUrl: v.optional(v.string()),
     primaryColor: v.optional(v.string()),
     secondaryColor: v.optional(v.string()),
-    contactEmail: v.string(),
     createdAt: v.number(),
-  }).index("by_contactEmail", ["contactEmail"]),
+  })
+    .index("by_contactEmail", ["contactEmail"])
+    .index("by_slug", ["slug"])
+    .index("by_workosOrganizationId", ["workosOrganizationId"]),
 
-  // 2. User/Game Master Auth Identity Mapping
+  // 2. User identity (global, not tenant-scoped)
+  //
+  // Phase 1 widening (migration-safe):
+  // - `workosUserId`, `emailNormalized`, `lastSeenAt`, `fullName` are
+  //   OPTIONAL during widening; legacy `name` field is restored.
+  // - Legacy `tenantId` field is retained; authorization code reads
+  //   `tenantMemberships`, not this field.
+  // Identity linkage: tokenIdentifier is the canonical key; email is
+  // normalized for diagnostic lookup only and never grants authority.
   users: defineTable({
-    tokenIdentifier: v.string(), // WorkOS user identity string
-    tenantId: v.id("tenants"),    // Owning Game Master workspace
+    tokenIdentifier: v.string(),
     email: v.string(),
+    // Legacy optional `name` retained so pre-Phase-1 documents without
+    // `fullName` still validate. New writes prefer `fullName`.
     name: v.optional(v.string()),
+    // Phase 1.3 widening fields — optional during widening.
+    workosUserId: v.optional(v.string()),
+    emailNormalized: v.optional(v.string()),
+    fullName: v.optional(v.string()),
+    lastSeenAt: v.optional(v.number()),
+    tenantId: v.id("tenants"), // legacy transitional field; do not use for authorization
     createdAt: v.number(),
-  }).index("by_tokenIdentifier", ["tokenIdentifier"]),
+  })
+    .index("by_tokenIdentifier", ["tokenIdentifier"])
+    .index("by_workosUserId", ["workosUserId"])
+    .index("by_emailNormalized", ["emailNormalized"])
+    // Phase 1.5: indexed by legacy `tenantId` so the bounded backfill
+    // migration advances a cursor instead of re-reading the same
+    // first batch forever. Convex auto-appends `_creationTime` to the
+    // end of every index, so ordering by (tenantId, _creationTime)
+    // is available from a single-column `by_tenantId` index and a
+    // timestamp watermark gives deterministic pagination.
+    .index("by_tenantId", ["tenantId"]),
 
-  // 3. Venues / Clubs
+  // 3. Tenant memberships (one row per user/tenant pair)
+  //
+  // Authorization decisions read this table. Phase 1 records the
+  // membership role locally; Phase 2 reconciles the role from
+  // WorkOS organization claims and rejects administrative elevation
+  // when the trusted claims no longer grant it.
+  // `status: "active" | "suspended"` is the local Convex gate.
+  // `workosOrganizationMembershipId` links the row to the WorkOS
+  // admin-org membership record (used for idempotent webhook handling).
+  tenantMemberships: defineTable({
+    tenantId: v.id("tenants"),
+    userId: v.id("users"),
+    role: v.union(
+      v.literal("owner"),
+      v.literal("game_master"),
+      v.literal("player")
+    ),
+    status: v.union(v.literal("active"), v.literal("suspended")),
+    workosOrganizationMembershipId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_userId", ["tenantId", "userId"])
+    .index("by_workosOrganizationMembershipId", [
+      "workosOrganizationMembershipId",
+    ]),
+
+  // 4. Audit log — safe before/after metadata only.
+  // Captures administrative membership reconciliation, event lifecycle
+  // changes, manual check-in reversal, match cancellation/substitution,
+  // score creation/correction, and tenant setting changes.
+  auditLogs: defineTable({
+    tenantId: v.id("tenants"),
+    actorUserId: v.optional(v.id("users")),
+    action: v.string(),
+    resourceType: v.string(),
+    resourceId: v.optional(v.string()),
+    before: v.optional(v.string()), // JSON-stringified safe snapshot
+    after: v.optional(v.string()),  // JSON-stringified safe snapshot
+    createdAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"]),
+
+  // 5. WorkOS webhook receipts — idempotency guard.
+  // One row per WorkOS event id; `by_eventId` is the dedupe index.
+  // Phase 2 wires the HTTP route to consult this table before applying.
+  workosWebhookReceipts: defineTable({
+    eventId: v.string(),
+    eventType: v.string(),
+    status: v.union(
+      v.literal("received"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    attempts: v.number(),
+    receivedAt: v.number(),
+    processedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_eventId", ["eventId"])
+    .index("by_status", ["status"]),
+
+  // 6. Venues / Clubs
   venues: defineTable({
     tenantId: v.id("tenants"),
     name: v.string(),
@@ -30,7 +140,7 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_tenant", ["tenantId"]),
 
-  // 4. Unified Players Directory (No anonymous players)
+  // 7. Unified Players Directory (No anonymous players)
   players: defineTable({
     tenantId: v.id("tenants"),
     firstName: v.string(),
@@ -58,7 +168,7 @@ export default defineSchema({
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_phone", ["tenantId", "phone"]),
 
-  // 5. Open Play Sessions
+  // 8. Open Play Sessions
   openPlaySessions: defineTable({
     tenantId: v.id("tenants"),
     venueId: v.optional(v.id("venues")),
@@ -83,7 +193,7 @@ export default defineSchema({
     .index("by_tenant", ["tenantId"])
     .index("by_venueId", ["venueId"]),
 
-  // 6. Session Players (Queue & Check-in tracking)
+  // 9. Session Players (Queue & Check-in tracking)
   sessionPlayers: defineTable({
     sessionId: v.id("openPlaySessions"),
     playerId: v.id("players"),
@@ -109,20 +219,20 @@ export default defineSchema({
     .index("by_sessionId_and_status", ["sessionId", "status"])
     .index("by_sessionId_and_status_and_queuePosition", ["sessionId", "status", "queuePosition"]),
 
-  // 7. Session Queue Counters (append-only queue position allocation)
+  // 10. Session Queue Counters (append-only queue position allocation)
   sessionQueueCounters: defineTable({
     sessionId: v.id("openPlaySessions"),
     nextPosition: v.number(),
-    frontNextPosition: v.optional(v.number()), // Decrements for front-of-queue returns (cancel/sub)
+    frontNextPosition: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_sessionId", ["sessionId"]),
 
-  // 8. Session Matches (Live courts match manager for Open Play)
+  // 11. Session Matches
   sessionMatches: defineTable({
     sessionId: v.id("openPlaySessions"),
     courtName: v.optional(v.string()),
-    team1: v.array(v.id("players")), // Array of 1 or 2 player IDs
-    team2: v.array(v.id("players")), // Array of 1 or 2 player IDs
+    team1: v.array(v.id("players")),
+    team2: v.array(v.id("players")),
     score1: v.optional(v.number()),
     score2: v.optional(v.number()),
     status: v.union(
@@ -137,20 +247,20 @@ export default defineSchema({
     .index("by_session", ["sessionId"])
     .index("by_sessionId_and_status", ["sessionId", "status"]),
 
-  // 9. Match History (Consolidated historical game records)
+  // 12. Match History
   matchHistory: defineTable({
     tenantId: v.id("tenants"),
     sessionId: v.optional(v.id("openPlaySessions")),
     tournamentId: v.optional(v.id("tournaments")),
-    players: v.array(v.id("players")), // Flat list of all 2 or 4 players
-    scores: v.array(v.number()),        // Match scores (length corresponds to teams)
-    winners: v.array(v.id("players")),  // Winning player IDs
+    players: v.array(v.id("players")),
+    scores: v.array(v.number()),
+    winners: v.array(v.id("players")),
     playedAt: v.number(),
   })
     .index("by_tenant", ["tenantId"])
     .index("by_player", ["players"]),
 
-  // 10. Tournaments
+  // 13. Tournaments
   tournaments: defineTable({
     tenantId: v.id("tenants"),
     name: v.string(),
@@ -175,7 +285,7 @@ export default defineSchema({
     .index("by_tenant", ["tenantId"])
     .index("by_tenantId_and_status", ["tenantId", "status"]),
 
-  // 11. Tournament Entrants (Fixed Doubles Teams)
+  // 14. Tournament Entrants
   tournamentEntrants: defineTable({
     tournamentId: v.id("tournaments"),
     name: v.string(),
@@ -196,12 +306,16 @@ export default defineSchema({
     .index("by_player2Id", ["player2Id"])
     .index("by_tournamentId_and_player1Id", ["tournamentId", "player1Id"])
     .index("by_tournamentId_and_player2Id", ["tournamentId", "player2Id"])
-    .index("by_tournamentId_and_player1Id_and_player2Id", ["tournamentId", "player1Id", "player2Id"]),
+    .index("by_tournamentId_and_player1Id_and_player2Id", [
+      "tournamentId",
+      "player1Id",
+      "player2Id",
+    ]),
 
-  // 12. Tournament Matches (The bracket structure)
+  // 15. Tournament Matches
   tournamentMatches: defineTable({
     tournamentId: v.id("tournaments"),
-    entrant1Id: v.optional(v.id("tournamentEntrants")), // optional for Byes or TBDs
+    entrant1Id: v.optional(v.id("tournamentEntrants")),
     entrant2Id: v.optional(v.id("tournamentEntrants")),
     courtName: v.optional(v.string()),
     score1: v.optional(v.number()),
@@ -238,7 +352,7 @@ export default defineSchema({
     .index("by_tournament", ["tournamentId"])
     .index("by_tournamentId_and_roundNumber", ["tournamentId", "roundNumber"]),
 
-  // 13. Player Stats Snapshots
+  // 16. Player Stats Snapshots
   statsSnapshots: defineTable({
     tenantId: v.id("tenants"),
     playerId: v.id("players"),
