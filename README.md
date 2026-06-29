@@ -53,7 +53,12 @@ The current MVP direction uses Convex for persistence and realtime sync, with br
    - `WORKOS_CLIENT_ID` - WorkOS AuthKit client ID.
    - `WORKOS_API_KEY` - WorkOS API key. Keep this server-side only.
    - `WORKOS_COOKIE_PASSWORD` - AuthKit session cookie secret, at least 32 characters.
+   - `WORKOS_COOKIE_MAX_AGE` - AuthKit session cookie maximum age in seconds. Set to `604800` (seven days) for all authenticated accounts.
    - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` - AuthKit callback URL, usually `http://localhost:3000/callback`.
+   - `WORKOS_WEBHOOK_SECRET` - Secret used to sign the WorkOS webhook delivery. Required to verify `/workos/webhooks`. Never commit a real value.
+   - `WORKOS_ORGANIZATION_ID` - Canonical WorkOS organization ID for the fixed tenant. Used to confirm every administrative webhook/claim targets the correct organization.
+   - `PICKLE_POINT_TENANT_SLUG` - Friendly slug for the single fixed tenant (e.g. `manila`).
+   - `PICKLE_POINT_TENANT_TIMEZONE` - IANA timezone applied to the tenant; defaults to `Asia/Manila`.
 
 4. Start the Convex backend watcher and Next.js development server:
 
@@ -123,6 +128,25 @@ Future features are tracked in `docs/roadmap.mdx`, including AI-assisted matchin
 Convex is the target backend for persistence, server functions, and realtime state. Turso, Drizzle schema files, Drizzle migrations, and SQL-first server actions are no longer part of the target architecture.
 
 When editing Convex code, read `convex/_generated/ai/guidelines.md` first. Those generated project guidelines override generic Convex assumptions.
+
+## Authentication Notes
+
+WorkOS AuthKit remains the identity provider. Convex ships with automatic AuthKit
+configuration; we extend it for direct SDK access:
+
+- `@workos-inc/node` is used by Convex HTTP actions and server actions to verify
+  webhook signatures and to resolve organization membership server-side.
+- The browser never supplies tenant, user, organization, membership, or role
+  authority. AuthKit JWT claims and signed webhook deliveries are the only
+  trusted sources.
+- The AuthKit application cookie maximum age is fixed to seven days
+  (`WORKOS_COOKIE_MAX_AGE=604800`). There is no per-tenant or per-role
+  reauthentication layer.
+- Game Master invitations use WorkOS default expiration; no custom
+  `expiresInDays` is configured.
+- Webhook events are delivered to `/workos/webhooks` and verified with the
+  raw body and signature header inside a `"use node"` action before any
+  database write.
 
 ## Learn More
 
