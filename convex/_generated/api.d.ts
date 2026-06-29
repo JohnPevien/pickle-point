@@ -8,6 +8,9 @@
  * @module
  */
 
+import type * as authzProbe from "../authzProbe.js";
+import type * as lib_authz from "../lib/authz.js";
+import type * as migrations_usersToMemberships from "../migrations/usersToMemberships.js";
 import type * as openPlaySessions from "../openPlaySessions.js";
 import type * as playerContact from "../playerContact.js";
 import type * as players from "../players.js";
@@ -24,6 +27,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  authzProbe: typeof authzProbe;
+  "lib/authz": typeof lib_authz;
+  "migrations/usersToMemberships": typeof migrations_usersToMemberships;
   openPlaySessions: typeof openPlaySessions;
   playerContact: typeof playerContact;
   players: typeof players;
