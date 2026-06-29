@@ -30,6 +30,24 @@ function normalizeEmail(value: string): string {
 }
 
 /**
+ * A "real" email is non-empty and NOT a synthetic placeholder.
+ *
+ * WorkOS webhook membership payloads do not carry profile fields, and a
+ * membership role/status change can arrive without any email at all.
+ * Persisting a synthetic `<userId>@unknown.workos` placeholder would
+ * silently overwrite a real, verified email captured at login. Reconciliation
+ * callers may therefore pass `email: undefined` to mean "preserve whatever
+ * is already stored"; only an explicitly real email ever overwrites the row.
+ */
+function isRealEmail(value: string | undefined): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !value.toLowerCase().endsWith("@unknown.workos")
+  );
+}
+
+/**
  * Creates or refreshes a user record for an authenticated identity inside a tenant workspace.
  *
  * Phase 1 widening: `workosUserId`, `emailNormalized`, and `lastSeenAt`
@@ -91,6 +109,18 @@ export const getOrCreateUser = internalMutation({
  * - `role` comes from the trusted WorkOS organization/role claim, not
  *   from any UI input.
  *
+ * Email preservation invariants (Phase 2):
+ * - `email` is OPTIONAL. The WorkOS webhook membership payload does not
+ *   carry profile fields; a role/status-only `updated` event arrives with
+ *   no email. In that case the existing stored email (and name) MUST be
+ *   preserved — never overwritten with `undefined` or a synthetic
+ *   `<userId>@unknown.workos` placeholder. Only an explicitly real email
+ *   overwrites the row.
+ * - Creating a NEW user requires a real email; the caller resolves a
+ *   verified WorkOS email before invoking this mutation. If none is
+ *   available the caller fails closed (so WorkOS can retry) rather than
+ *   persisting a synthetic address.
+ *
  * Behavior:
  * - User upsert by `tokenIdentifier`. Email is normalized for
  *   diagnostic lookup but is NEVER used for identity resolution.
@@ -104,7 +134,9 @@ export const reconcileUserAndMembership = internalMutation({
   args: {
     tokenIdentifier: v.string(),
     workosUserId: v.string(),
-    email: v.string(),
+    // Optional: callers omit email for role/status-only webhook updates.
+    // The mutation preserves any existing real email when this is absent.
+    email: v.optional(v.string()),
     fullName: v.optional(v.string()),
     tenantId: v.id("tenants"),
     role: v.union(
@@ -130,7 +162,11 @@ export const reconcileUserAndMembership = internalMutation({
     }
 
     const now = Date.now();
-    const emailNormalized = normalizeEmail(args.email);
+    // Only a real (non-synthetic, non-empty) email is ever written. When
+    // the caller omits a usable email, the existing stored value is
+    // preserved — this is what protects a real email from being
+    // overwritten by a role/status-only webhook update.
+    const usableEmail = isRealEmail(args.email) ? args.email.trim() : undefined;
 
     // Upsert user by tokenIdentifier. Email linkage is NEVER used as
     // the identity key — a different tokenIdentifier always means a
@@ -170,21 +206,37 @@ export const reconcileUserAndMembership = internalMutation({
 
     let userId: Id<"users">;
     if (existingUser) {
-      await ctx.db.patch(existingUser._id, {
-        email: args.email,
-        emailNormalized,
+      // Preserve the existing email/name unless the caller supplied a
+      // real replacement. A role/status-only webhook update arrives with
+      // no profile fields; writing `undefined` here would erase a real,
+      // verified email captured at login.
+      const patch: Record<string, unknown> = {
         workosUserId: args.workosUserId,
-        fullName: args.fullName ?? existingUser.fullName,
         tenantId: args.tenantId,
         lastSeenAt: now,
-      });
+      };
+      if (usableEmail) {
+        patch.email = usableEmail;
+        patch.emailNormalized = normalizeEmail(usableEmail);
+      }
+      if (args.fullName) {
+        patch.fullName = args.fullName;
+      }
+      await ctx.db.patch(existingUser._id, patch);
       userId = existingUser._id;
     } else {
+      // New user: a real email is required. The schema marks `email`
+      // required, and we refuse to persist a synthetic placeholder. The
+      // caller (webhook/login) resolves a verified WorkOS email first; if
+      // it cannot, it must fail closed so the event/login can retry.
+      if (!usableEmail) {
+        throw new Error("EMAIL_REQUIRED: cannot create a user without a verified email");
+      }
       userId = await ctx.db.insert("users", {
         tokenIdentifier: args.tokenIdentifier,
         workosUserId: args.workosUserId,
-        email: args.email,
-        emailNormalized,
+        email: usableEmail,
+        emailNormalized: normalizeEmail(usableEmail),
         fullName: args.fullName,
         tenantId: args.tenantId,
         createdAt: now,

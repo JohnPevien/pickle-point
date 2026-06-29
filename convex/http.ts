@@ -8,17 +8,15 @@
  * returns 401 (INVALID_SIGNATURE) or 403 (WRONG_ORGANIZATION)
  * so retries can be observed by WorkOS.
  *
- * Note: the canonical WorkOS organization id is resolved by the
- * Convex caller (the deployment runtime) and passed into the
- * action. The browser never controls it.
+ * The canonical WorkOS organization id is resolved by the Convex caller
+ * (the deployment runtime) and passed into the action. The browser never
+ * controls it.
  *
- * Phase 2.3 — `/internal/reconcile-callback`
- *
- * The Next.js WorkOS callback handler calls this endpoint after a
- * successful sign-in to upsert the user + membership projection
- * using trusted, server-side data extracted from the access token
- * JWT and the AuthKit session. The endpoint is gated on a deploy
- * key (NOT a user JWT) so it cannot be invoked by the browser.
+ * Note: the AuthKit login callback no longer crosses this HTTP surface.
+ * Login reconciliation runs through the public, token-authenticated
+ * `api.callback.reconcileWorkosCallback` action, called from the Next.js
+ * callback route via Convex's supported authenticated invocation. There is
+ * no deploy-key-gated server-to-server bridge here anymore.
  */
 
 import { httpRouter } from "convex/server";
@@ -31,30 +29,6 @@ function getExpectedOrganizationId(): string {
     throw new Error("WORKOS_ORGANIZATION_ID is not configured");
   }
   return orgId;
-}
-
-function getConvexDeployKey(): string {
-  const key = process.env.CONVEX_DEPLOY_KEY ?? "";
-  return key;
-}
-
-function authorizeDeploy(request: Request): boolean {
-  const expected = getConvexDeployKey();
-  if (!expected) {
-    // In dev (no deploy key), refuse to expose internal endpoints to
-    // the open internet. Local dev should call the reconciler through
-    // the regular `internal.callback.reconcileWorkosCallback` action
-    // via the Convex test harness.
-    return false;
-  }
-  const supplied =
-    request.headers.get("x-convex-deploy-key") ??
-    request.headers
-      .get("authorization")
-      ?.replace(/^Bearer\s+/i, "")
-      .trim() ??
-    "";
-  return supplied === expected;
 }
 
 const http = httpRouter();
@@ -129,6 +103,11 @@ http.route({
       } else if (message.startsWith("WEBHOOK_INVALID")) {
         status = 400;
         publicError = "invalid webhook";
+      } else if (message.startsWith("EMAIL_REQUIRED")) {
+        // Created a membership without a resolvable verified email — let
+        // WorkOS retry. No data was written.
+        status = 409;
+        publicError = "email required";
       }
       // Server-side logging is handled by Convex runtime. The body
       // never carries the raw cause.
@@ -136,85 +115,6 @@ http.route({
         status,
         headers: { "content-type": "application/json" },
       });
-    }
-  }),
-});
-
-/**
- * Server-to-server bridge for the AuthKit callback. Body shape:
- *
- *   {
- *     workosUserId: string,
- *     email: string,
- *     fullName?: string,
- *     organizationId?: string,
- *     role: "owner" | "game_master" | "player",
- *     tenantSlug?: string,
- *   }
- *
- * Returns 401 when the deploy key is missing or wrong, 200 when the
- * action succeeded (including tenant-not-provisioned), and 500 on
- * unexpected errors. No information about the caller is leaked in
- * the error message.
- */
-http.route({
-  path: "/internal/reconcile-callback",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    if (!authorizeDeploy(request)) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    let parsed: {
-      workosUserId?: string;
-      email?: string;
-      fullName?: string;
-      organizationId?: string;
-      role?: "owner" | "game_master" | "player";
-      tenantSlug?: string;
-    };
-    try {
-      parsed = await request.json();
-    } catch {
-      return new Response(JSON.stringify({ error: "invalid body" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
-    const { workosUserId, email, fullName, organizationId, role, tenantSlug } = parsed;
-    if (!workosUserId || !email || !role) {
-      return new Response(
-        JSON.stringify({ error: "missing required fields" }),
-        { status: 400, headers: { "content-type": "application/json" } }
-      );
-    }
-
-    try {
-      const result = await ctx.runAction(internal.callback.reconcileWorkosCallback, {
-        workosUserId,
-        email,
-        fullName,
-        organizationId: organizationId || undefined,
-        role,
-        tenantSlug: tenantSlug || undefined,
-      });
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    } catch (error) {
-      // The reconciler already validated all inputs. Unexpected errors
-      // surface a generic message; callers can retry.
-      return new Response(
-        JSON.stringify({
-          error: error instanceof Error ? error.message : "internal error",
-        }),
-        { status: 500, headers: { "content-type": "application/json" } }
-      );
     }
   }),
 });

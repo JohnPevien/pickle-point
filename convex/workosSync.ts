@@ -126,7 +126,11 @@ export const applyEvent = internalMutation({
       await ctx.runMutation(internal.users.reconcileUserAndMembership, {
         tokenIdentifier: `https://api.workos.com|${args.event.userId}`,
         workosUserId: args.event.userId,
-        email: args.event.email ?? `${args.event.userId}@unknown.workos`,
+        // Pass the profile email through only when present. The mutation
+        // preserves any existing real email when this is omitted — a
+        // role/status-only update must NEVER overwrite a real email with
+        // a synthetic `<userId>@unknown.workos` placeholder.
+        email: args.event.email,
         fullName: args.event.fullName,
         tenantId: tenant._id,
         role: args.event.role,
