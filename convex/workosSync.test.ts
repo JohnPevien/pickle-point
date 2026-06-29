@@ -40,19 +40,35 @@ vi.mock("@workos-inc/node", () => {
       customAttributes: input.custom_attributes ?? {},
     };
   }
+  // Per-user profile overrides. Tests can set
+  // `__workosUserProfiles[userId] = { email: undefined }` to simulate a
+  // user without a resolvable email (the fail-closed regression case).
+  const __workosUserProfiles: Record<string, { email?: string; firstName?: string; lastName?: string }> = {};
   return {
     WorkOS: class {
       userManagement = {
-        getUser: async (userId: string) => ({
-          id: userId,
-          email: `${userId}@example.com`,
-          firstName: "Mocked",
-          lastName: "User",
-          emailVerified: true,
-          profilePictureUrl: null,
-          createdAt: "2026-06-29T00:00:00Z",
-          updatedAt: "2026-06-29T00:00:00Z",
-        }),
+        getUser: async (userId: string) => {
+          // When an override entry exists for this user it is fully
+          // authoritative — an explicit `email: undefined` means the
+          // WorkOS profile has no resolvable email (the fail-closed
+          // regression case). Without an override, return the default
+          // mocked profile.
+          const hasOverride = Object.prototype.hasOwnProperty.call(
+            __workosUserProfiles,
+            userId
+          );
+          const override = __workosUserProfiles[userId];
+          return {
+            id: userId,
+            email: hasOverride ? override?.email : `${userId}@example.com`,
+            firstName: hasOverride ? override?.firstName : "Mocked",
+            lastName: hasOverride ? override?.lastName : "User",
+            emailVerified: true,
+            profilePictureUrl: null,
+            createdAt: "2026-06-29T00:00:00Z",
+            updatedAt: "2026-06-29T00:00:00Z",
+          };
+        },
       };
       webhooks = {
         constructEvent: async ({ payload }: { payload: string }) => {
@@ -68,8 +84,15 @@ vi.mock("@workos-inc/node", () => {
         },
       };
     },
+    // Exposed for tests that need to shape the WorkOS profile response.
+    __workosUserProfiles,
   };
 });
+
+// Typed handle to the mock's per-user profile override map.
+const workosUserProfiles = (vi.mocked(await import("@workos-inc/node")) as unknown as {
+  __workosUserProfiles: Record<string, { email?: string; firstName?: string; lastName?: string }>;
+}).__workosUserProfiles;
 
 type WireMembershipData = {
   id: string;
@@ -129,6 +152,10 @@ beforeEach(() => {
   process.env.WORKOS_API_KEY = "test_api_key";
   process.env.WORKOS_ORGANIZATION_ID = "org_unit_test";
   __setWebhookSignatureVerifier(null); // real (mocked) verifier
+  // Clear any per-user WorkOS profile overrides between tests.
+  for (const key of Object.keys(workosUserProfiles)) {
+    delete workosUserProfiles[key];
+  }
 });
 
 afterEach(() => {
@@ -401,5 +428,204 @@ describe("WorkOS webhook sync", () => {
     );
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({ status: "completed" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 2 regression: never corrupt a real email with a synthetic
+  // `<userId>@unknown.workos` placeholder. Membership role/status webhook
+  // payloads carry no profile fields, so updates MUST preserve the real
+  // email (and name) captured at login.
+  // -------------------------------------------------------------------------
+
+  test("a created event without a resolvable WorkOS email fails closed and writes nothing", async () => {
+    const t = convexTest(schema, modules);
+    await seedTenant(t);
+
+    // The WorkOS profile fetch returns no email for this user.
+    workosUserProfiles["user_no_email"] = { email: undefined };
+
+    const payload: WirePayload = {
+      id: "evt_no_email",
+      event: "organization_membership.created",
+      data: {
+        id: "wos_membership_no_email",
+        organization_id: "org_unit_test",
+        organization_name: "Unit Test Org",
+        user_id: "user_no_email",
+        status: "active",
+        role: { slug: "player" },
+      },
+    };
+
+    await expect(
+      t.action(internal.workosActions.ingestSignedWebhook, {
+        rawBody: JSON.stringify(payload),
+        signatureHeader: "valid",
+        expectedOrganizationId: "org_unit_test",
+      })
+    ).rejects.toThrow(/EMAIL_REQUIRED/);
+
+    // Nothing persisted: no user, no membership, no receipt (the throw
+    // happens before applyEvent runs, so WorkOS will retry).
+    const users = await t.run(async (ctx) => ctx.db.query("users").collect());
+    const memberships = await t.run(async (ctx) =>
+      ctx.db.query("tenantMemberships").collect()
+    );
+    const receipts = await t.run(async (ctx) =>
+      ctx.db.query("workosWebhookReceipts").collect()
+    );
+    expect(users).toHaveLength(0);
+    expect(memberships).toHaveLength(0);
+    expect(receipts).toHaveLength(0);
+  });
+
+  test("a role-only updated event preserves the real email captured at create", async () => {
+    const t = convexTest(schema, modules);
+    await seedTenant(t);
+
+    // 1. Create with a real email resolved from WorkOS.
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify({
+        id: "evt_create_email",
+        event: "organization_membership.created",
+        data: {
+          id: "wos_membership_email",
+          organization_id: "org_unit_test",
+          organization_name: "Unit Test Org",
+          user_id: "user_email",
+          status: "active",
+          role: { slug: "player" },
+        },
+      }),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+
+    const afterCreate = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_email"))
+        .first()
+    );
+    expect(afterCreate?.email).toBe("user_email@example.com");
+    expect(afterCreate?.emailNormalized).toBe("user_email@example.com");
+    expect(afterCreate?.fullName).toBe("Mocked User");
+
+    // 2. A role-only `updated` event arrives with no profile fields. The
+    //    action does NOT re-fetch the WorkOS profile on updates, so it
+    //    passes email: undefined. The mutation must preserve the real
+    //    email — never overwrite it with a synthetic placeholder.
+    const updated: WirePayload = {
+      id: "evt_role_only",
+      event: "organization_membership.updated",
+      data: {
+        id: "wos_membership_email",
+        organization_id: "org_unit_test",
+        organization_name: "Unit Test Org",
+        user_id: "user_email",
+        status: "active",
+        role: { slug: "game_master" },
+      },
+    };
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify(updated),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+
+    const afterUpdate = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_email"))
+        .first()
+    );
+    // Email + name preserved; role applied.
+    expect(afterUpdate?.email).toBe("user_email@example.com");
+    expect(afterUpdate?.emailNormalized).toBe("user_email@example.com");
+    expect(afterUpdate?.fullName).toBe("Mocked User");
+    expect(afterUpdate?.email).not.toMatch(/@unknown\.workos$/);
+
+    const memberships = await t.run(async (ctx) =>
+      ctx.db.query("tenantMemberships").collect()
+    );
+    expect(memberships[0].role).toBe("game_master");
+  });
+
+  test("a status-only updated event (pending) suspends but keeps the real email", async () => {
+    const t = convexTest(schema, modules);
+    await seedTenant(t);
+
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify(membershipCreatedPayload()),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+
+    const updated: WirePayload = {
+      id: "evt_status_only",
+      event: "organization_membership.updated",
+      data: { ...membershipCreatedPayload().data, status: "pending" },
+    };
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify(updated),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+
+    const user = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_001"))
+        .first()
+    );
+    // Real email survives; nothing synthetic written.
+    expect(user?.email).toBe("user_001@example.com");
+    expect(user?.email).not.toMatch(/@unknown\.workos$/);
+
+    const memberships = await t.run(async (ctx) =>
+      ctx.db.query("tenantMemberships").collect()
+    );
+    expect(memberships[0].status).toBe("suspended");
+  });
+
+  test("never persists a synthetic @unknown.workos address on any path", async () => {
+    const t = convexTest(schema, modules);
+    await seedTenant(t);
+
+    // Drive a full create → update → delete cycle.
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify(membershipCreatedPayload()),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+    const updated: WirePayload = {
+      id: "evt_update_role",
+      event: "organization_membership.updated",
+      data: { ...membershipCreatedPayload().data, role: { slug: "game_master" } },
+    };
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify(updated),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+    const deleted: WirePayload = {
+      id: "evt_delete",
+      event: "organization_membership.deleted",
+      data: membershipCreatedPayload().data,
+    };
+    await t.action(internal.workosActions.ingestSignedWebhook, {
+      rawBody: JSON.stringify(deleted),
+      signatureHeader: "valid",
+      expectedOrganizationId: "org_unit_test",
+    });
+
+    const users = await t.run(async (ctx) => ctx.db.query("users").collect());
+    expect(users).toHaveLength(1);
+    for (const u of users) {
+      expect(u.email).not.toMatch(/@unknown\.workos$/);
+      if (u.emailNormalized) {
+        expect(u.emailNormalized).not.toMatch(/@unknown\.workos$/);
+      }
+    }
   });
 });

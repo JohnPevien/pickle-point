@@ -406,4 +406,140 @@ describe("User/membership reconciliation", () => {
     expect(aMembership?.role).toBe("owner");
     expect(bMembership?.role).toBe("game_master");
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 2 regression: email preservation. A webhook role/status update
+  // arrives with no profile email; the mutation MUST preserve the real
+  // email captured at login and never write a synthetic placeholder.
+  // -------------------------------------------------------------------------
+
+  test("omitting email on an existing user preserves the stored email and name", async () => {
+    const t = convexTest(schema, modules);
+    const tenantId = await t.run(async (ctx) =>
+      ctx.db.insert("tenants", {
+        name: "Preserve Club",
+        slug: "preserve-club",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_preserve",
+        status: "active",
+        contactEmail: "gm@preserve.com",
+        createdAt: Date.now(),
+      })
+    );
+
+    // Create the user with a real email + name.
+    const first = await t.mutation(internal.users.reconcileUserAndMembership, {
+      tokenIdentifier: "https://api.workos.com|preserve-001",
+      workosUserId: "preserve_user_001",
+      email: "real@preserve.com",
+      fullName: "Real Name",
+      tenantId: tenantId as any,
+      role: "player",
+    });
+
+    // A role/status-only update arrives with NO email and NO fullName.
+    // The mutation must keep the real email/name and never write a
+    // synthetic `<userId>@unknown.workos` placeholder.
+    const second = await t.mutation(internal.users.reconcileUserAndMembership, {
+      tokenIdentifier: "https://api.workos.com|preserve-001",
+      workosUserId: "preserve_user_001",
+      // email intentionally omitted
+      // fullName intentionally omitted
+      tenantId: tenantId as any,
+      role: "game_master",
+      status: "active",
+    });
+
+    expect(second.userId).toBe(first.userId);
+    expect(second.membershipId).toBe(first.membershipId);
+
+    const user = await t.run(async (ctx) => ctx.db.get(second.userId));
+    expect(user?.email).toBe("real@preserve.com");
+    expect(user?.emailNormalized).toBe("real@preserve.com");
+    expect(user?.fullName).toBe("Real Name");
+    expect(user?.email).not.toMatch(/@unknown\.workos$/);
+
+    const membership = await t.run(async (ctx) => ctx.db.get(second.membershipId));
+    expect(membership?.role).toBe("game_master");
+  });
+
+  test("creating a new user without an email is rejected (no synthetic address)", async () => {
+    const t = convexTest(schema, modules);
+    const tenantId = await t.run(async (ctx) =>
+      ctx.db.insert("tenants", {
+        name: "Reject Club",
+        slug: "reject-club",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_reject",
+        status: "active",
+        contactEmail: "gm@reject.com",
+        createdAt: Date.now(),
+      })
+    );
+
+    await expect(
+      t.mutation(internal.users.reconcileUserAndMembership, {
+        tokenIdentifier: "https://api.workos.com|reject-001",
+        workosUserId: "reject_user_001",
+        // email omitted — must fail rather than persist a synthetic
+        tenantId: tenantId as any,
+        role: "player",
+      })
+    ).rejects.toThrow(/EMAIL_REQUIRED/);
+
+    // No user/membership written.
+    const users = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_tokenIdentifier", (q) =>
+          q.eq("tokenIdentifier", "https://api.workos.com|reject-001")
+        )
+        .collect()
+    );
+    expect(users).toHaveLength(0);
+  });
+
+  test("a synthetic @unknown.workos email is treated as no email (preserves existing)", async () => {
+    const t = convexTest(schema, modules);
+    const tenantId = await t.run(async (ctx) =>
+      ctx.db.insert("tenants", {
+        name: "Synthetic Club",
+        slug: "synthetic-club",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_synthetic",
+        status: "active",
+        contactEmail: "gm@synthetic.com",
+        createdAt: Date.now(),
+      })
+    );
+
+    await t.mutation(internal.users.reconcileUserAndMembership, {
+      tokenIdentifier: "https://api.workos.com|synth-001",
+      workosUserId: "synth_user_001",
+      email: "real@synthetic.com",
+      tenantId: tenantId as any,
+      role: "player",
+    });
+
+    // A caller mistakenly passes a synthetic placeholder — the mutation
+    // must NOT overwrite the real email with it.
+    await t.mutation(internal.users.reconcileUserAndMembership, {
+      tokenIdentifier: "https://api.workos.com|synth-001",
+      workosUserId: "synth_user_001",
+      email: "synth_user_001@unknown.workos",
+      tenantId: tenantId as any,
+      role: "player",
+    });
+
+    const user = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_tokenIdentifier", (q) =>
+          q.eq("tokenIdentifier", "https://api.workos.com|synth-001")
+        )
+        .first()
+    );
+    expect(user?.email).toBe("real@synthetic.com");
+    expect(user?.email).not.toMatch(/@unknown\.workos$/);
+  });
 });

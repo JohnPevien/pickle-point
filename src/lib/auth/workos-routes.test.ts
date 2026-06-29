@@ -35,6 +35,7 @@ const nextHeadersMocks = vi.hoisted(() => ({
 
 const convexMocks = vi.hoisted(() => ({
   fetchQuery: vi.fn(),
+  fetchAction: vi.fn(),
 }));
 
 vi.mock("@workos-inc/authkit-nextjs", () => authkitMocks);
@@ -43,34 +44,18 @@ vi.mock("fumadocs-core/search/server", () => docsSearchMocks);
 vi.mock("@/lib/source", () => ({ source: {} }));
 vi.mock("next/navigation", () => navigationMocks);
 vi.mock("next/headers", () => nextHeadersMocks);
-
-// Hoisted mock for `@/lib/convex/internal` so that any code path that
-// imports `reconcile.ts` (which in turn imports the internal client)
-// is intercepted even before this test file's body runs. The mock
-// state lives on a `vi.hoisted` shared object so it survives
-// `vi.resetModules()` — which clears module identity but preserves
-// the hoisted reference.
-const convexInternalShared = vi.hoisted(() => {
-  type AnyFunction = (args: unknown) => Promise<unknown>;
-  const resolvers: Record<string, AnyFunction> = {};
-  const calls: string[] = [];
-  return {
-    resolvers,
-    calls,
-    invoke: async (path: string, args: unknown) => {
-      calls.push(path);
-      const fn = resolvers[path];
-      if (!fn) {
-        throw new Error(`No mock registered for convex internal endpoint ${path}`);
-      }
-      return await fn(args);
-    },
-  };
-});
-
-vi.mock("@/lib/convex/internal", () => ({
-  invokeInternalAction: convexInternalShared.invoke,
+// The generated `api` object is imported by the callback route. We do
+// not exercise Convex here — the route only passes the function
+// reference through to the mocked `fetchAction`. Stub it as `anyApi`.
+vi.mock("../../../convex/_generated/api", () => ({
+  api: {
+    callback: { reconcileWorkosCallback: "api.callback.reconcileWorkosCallback" },
+  },
 }));
+
+// `convexMocks.fetchAction` is reset and re-stubbed per test inside the
+// callback reconciliation suite. The mock survives `vi.resetModules()`
+// because it lives on the hoisted `convexMocks` object.
 
 const workosEnvKeys = [
   "NODE_ENV",
@@ -137,6 +122,7 @@ beforeEach(() => {
   nextHeadersMocks.headers.mockReset();
   nextHeadersMocks.headers.mockResolvedValue(new Headers());
   convexMocks.fetchQuery.mockReset();
+  convexMocks.fetchAction.mockReset();
 
   restoreWorkosEnv();
 });
@@ -201,224 +187,131 @@ describe("AuthKit page routes", () => {
 });
 
 // -------------------------------------------------------------------------
-// Task 2.3: login/callback membership reconciliation
+// Task 2.3: login/callback membership reconciliation (route-level)
 // -------------------------------------------------------------------------
-
-// Hoisted once: the verifier survives `vi.resetModules` because both
-// reconcile.ts and the test reference this same shared reference.
-const fakeJwtVerifier = vi.hoisted(() => {
-  return async (accessToken: string, expectedSubject: string) => {
-    const parts = accessToken.split(".");
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf8")
-    ) as Record<string, unknown>;
-    if (typeof payload["sub"] !== "string" || payload["sub"].length === 0) {
-      throw new Error("missing sub");
-    }
-    if (payload["sub"] !== expectedSubject) {
-      throw new Error("sub mismatch");
-    }
-    const orgId =
-      (payload["organization_id"] as string | undefined) ??
-      (payload["org_id"] as string | undefined);
-    const roles = payload["roles"];
-    const role =
-      Array.isArray(roles) && typeof roles[0] === "string"
-        ? roles[0]
-        : typeof roles === "string"
-          ? roles
-          : typeof payload["role"] === "string"
-            ? payload["role"]
-            : undefined;
-    return {
-      subject: payload["sub"],
-      organizationId: orgId,
-      role,
-    };
-  };
-});
+//
+// These tests exercise the AuthKit callback route's `onSuccess` and
+// `onError` behavior, not a reconcile helper. The route forwards the
+// access token to `api.callback.reconcileWorkosCallback` via Convex's
+// authenticated `fetchAction`. Convex validates the JWT and derives the
+// identity server-side, so the route passes NO user/org/tenant/role
+// arguments — only the token. A non-`ok` result throws, routing the
+// user to `onError` → `/support/access`.
 
 describe("callback reconciliation", () => {
-  function encodeAccessToken(payload: Record<string, unknown>): string {
-    const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
-    const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-    return `${header}.${body}.signature`;
+  // The route imports `handleAuth` and calls its returned handler. To
+  // exercise onSuccess/onError we capture the options passed to
+  // `handleAuth`, then drive the real handler with a fake Request so
+  // AuthKit's own OAuth/PKCE code is bypassed.
+  function captureHandleAuthOptions(): {
+    getOptions: () => {
+      onSuccess?: (data: { accessToken: string }) => Promise<void>;
+      onError?: (params: { request: Request; error?: unknown }) => Response | Promise<Response>;
+    };
+  } {
+    const captured: {
+      onSuccess?: (data: { accessToken: string }) => Promise<void>;
+      onError?: (params: { request: Request; error?: unknown }) => Response | Promise<Response>;
+    } = {};
+    // Cast around vitest's mock-typing variance: `handleAuth` is mocked
+    // as a zero-arg `vi.fn`, but the real AuthKit `handleAuth` takes an
+    // options object. We capture that object to drive onSuccess/onError.
+    const mockHandleAuth = authkitMocks.handleAuth as unknown as {
+      mockImplementation: (impl: (options: typeof captured) => unknown) => void;
+    };
+    mockHandleAuth.mockImplementation((options) => {
+      Object.assign(captured, options ?? {});
+      return authkitMocks.callbackHandler;
+    });
+    return { getOptions: () => captured };
   }
 
-  beforeEach(async () => {
-    // The reconcile module's module-scoped override is reset by
-    // vi.resetModules, so re-install the verifier on every test.
-    const { __setAccessTokenVerifier } = await import("../auth/reconcile");
-    __setAccessTokenVerifier(fakeJwtVerifier);
+  test("onSuccess forwards only the access token to the authenticated action", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    convexMocks.fetchAction.mockResolvedValue({ status: "ok" });
+    const { getOptions } = captureHandleAuthOptions();
+    await import("../../app/callback/route");
+
+    const accessToken = "jwt.access.token";
+    await getOptions().onSuccess!({ accessToken });
+
+    expect(convexMocks.fetchAction).toHaveBeenCalledTimes(1);
+    const [ref, args, options] = convexMocks.fetchAction.mock.calls[0];
+    // The function reference is opaque to the test; we assert the call
+    // carries NO identity arguments and forwards the token as the sole
+    // authentication credential.
+    expect(ref).toBeTruthy();
+    expect(args).toEqual({});
+    expect(options).toEqual({ token: accessToken });
   });
 
-  test("owner claims drive reconciliation against the fixed tenant", async () => {
+  test("onSuccess with a non-ok status throws so AuthKit routes to onError", async () => {
     setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
-    const convexInternalMocks = convexInternalShared;
-    convexInternalMocks.calls.length = 0;
-    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
-      status: "reconciled",
-    }));
+    const { getOptions } = captureHandleAuthOptions();
+    await import("../../app/callback/route");
+    const onSuccess = getOptions().onSuccess!;
+    expect(onSuccess).toBeInstanceOf(Function);
 
-    authkitMocks.callbackHandler.mockResolvedValue(
-      new Response(null, { status: 302, headers: { location: "/dashboard" } })
+    for (const status of ["email_required", "forbidden", "tenant_not_provisioned", "unauthenticated"] as const) {
+      convexMocks.fetchAction.mockResolvedValueOnce({ status });
+      await expect(onSuccess({ accessToken: "jwt" })).rejects.toThrow();
+    }
+  });
+
+  test("onSuccess surfaces a fetchAction rejection as a thrown error (→ onError)", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    convexMocks.fetchAction.mockRejectedValue(new Error("convex down"));
+    const { getOptions } = captureHandleAuthOptions();
+    await import("../../app/callback/route");
+
+    await expect(
+      getOptions().onSuccess!({ accessToken: "jwt" })
+    ).rejects.toThrow();
+  });
+
+  test("onError redirects to /support/access and leaks nothing", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const { getOptions } = captureHandleAuthOptions();
+    await import("../../app/callback/route");
+
+    const request = new Request("https://app.example.com/callback");
+    const sensitive = {
+      error: new Error("organization_id=org_pickle_point token=secret email=owner@x.example"),
+    };
+    const response = await getOptions().onError!({ request, ...sensitive } as never);
+
+    expect(response.status).toBe(303);
+    const location = response.headers.get("location");
+    expect(location).toMatch(/^https:\/\/app\.example\.com\/support\/access$/);
+
+    // No token, claim, organization id, email, or internal message may
+    // appear anywhere in the response headers or body.
+    const headerDump = JSON.stringify(Object.fromEntries(response.headers.entries()));
+    expect(headerDump).not.toContain("org_pickle_point");
+    expect(headerDump).not.toContain("owner@x.example");
+    expect(headerDump.toLowerCase()).not.toContain("token=secret");
+    const body = await response.text();
+    expect(body).toBe("");
+  });
+
+  test("onError never reflects query-string tokens even if present on the request", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    const { getOptions } = captureHandleAuthOptions();
+    await import("../../app/callback/route");
+
+    const request = new Request(
+      "https://app.example.com/callback?code=secret_code&state=secret_state"
     );
-
-    const accessToken = encodeAccessToken({
-      sub: "user_001",
-      org_id: "org_pickle_point",
-      role: "owner",
+    const response = await getOptions().onError!({
+      request,
+      error: new Error("boom"),
     });
 
-    const { reconcileWorkosCallback } = await import("../auth/reconcile");
-    const result = await reconcileWorkosCallback({
-      user: {
-        id: "user_001",
-        email: "owner@picklepoint.example",
-        firstName: "Ada",
-        lastName: "Lovelace",
-      },
-      accessToken,
-    });
-
-    expect(convexInternalMocks.calls).toContain("/internal/reconcile-callback");
-    expect(
-      convexInternalMocks.resolvers["/internal/reconcile-callback"]
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workosUserId: "user_001",
-        organizationId: "org_pickle_point",
-        role: "owner",
-      })
-    );
-    expect(result.ok).toBe(true);
-  });
-
-  test("ordinary player login (no organization claim) never invents an admin role", async () => {
-    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
-    const convexInternalMocks = convexInternalShared;
-    convexInternalMocks.calls.length = 0;
-    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
-      status: "reconciled",
-    }));
-
-    // Personal-account JWT — no organization claim.
-    const accessToken = encodeAccessToken({ sub: "user_player" });
-    const { reconcileWorkosCallback } = await import("../auth/reconcile");
-    await reconcileWorkosCallback({
-      user: {
-        id: "user_player",
-        email: "player@picklepoint.example",
-      },
-      accessToken,
-    });
-
-    const call =
-      convexInternalMocks.resolvers["/internal/reconcile-callback"].mock.calls.at(-1)?.[0];
-    expect(call).toBeDefined();
-    expect(call.role).toBe("player");
-    expect(call.organizationId).toBeUndefined();
-  });
-
-  test("JWT role claim is the authoritative source", async () => {
-    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
-    const convexInternalMocks = convexInternalShared;
-    convexInternalMocks.calls.length = 0;
-    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
-      status: "reconciled",
-    }));
-
-    // JWT carries role=owner; we trust that claim.
-    const accessToken = encodeAccessToken({
-      sub: "user_002",
-      org_id: "org_pickle_point",
-      role: "owner",
-    });
-    const { reconcileWorkosCallback } = await import("../auth/reconcile");
-    await reconcileWorkosCallback({
-      user: { id: "user_002", email: "owner2@picklepoint.example" },
-      accessToken,
-    });
-
-    const call =
-      convexInternalMocks.resolvers["/internal/reconcile-callback"].mock.calls.at(-1)?.[0];
-    expect(call.role).toBe("owner");
-  });
-
-  test("JWT with wrong organization claim returns safe support route, no DB write", async () => {
-    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
-    const convexInternalMocks = convexInternalShared;
-    convexInternalMocks.calls.length = 0;
-
-    const accessToken = encodeAccessToken({
-      sub: "user_cross",
-      org_id: "org_someone_else",
-      role: "owner",
-    });
-    const { reconcileWorkosCallback } = await import("../auth/reconcile");
-    const result = await reconcileWorkosCallback({
-      user: { id: "user_cross", email: "cross@picklepoint.example" },
-      accessToken,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.redirectTo).toMatch(/^\/support\/access/);
-    expect(convexInternalMocks.calls).toHaveLength(0);
-  });
-
-  test("replay is idempotent and never errors when the user/membership already exists", async () => {
-    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
-    const convexInternalMocks = convexInternalShared;
-    convexInternalMocks.calls.length = 0;
-    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
-      status: "reconciled",
-    }));
-
-    const accessToken = encodeAccessToken({
-      sub: "user_dup",
-      org_id: "org_pickle_point",
-      role: "game_master",
-    });
-    const { reconcileWorkosCallback } = await import("../auth/reconcile");
-    const first = await reconcileWorkosCallback({
-      user: { id: "user_dup", email: "dup@picklepoint.example" },
-      accessToken,
-    });
-    const second = await reconcileWorkosCallback({
-      user: { id: "user_dup", email: "dup@picklepoint.example" },
-      accessToken,
-    });
-
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
-    expect(
-      convexInternalMocks.resolvers["/internal/reconcile-callback"]
-    ).toHaveBeenCalledTimes(2);
-  });
-
-  test("reconciliation failure returns a safe support route without leaking claims", async () => {
-    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
-    const convexInternalMocks = convexInternalShared;
-    convexInternalMocks.calls.length = 0;
-    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => {
-      throw new Error("network down");
-    });
-
-    const accessToken = encodeAccessToken({
-      sub: "user_fail",
-      org_id: "org_pickle_point",
-      role: "owner",
-    });
-    const { reconcileWorkosCallback } = await import("../auth/reconcile");
-    const result = await reconcileWorkosCallback({
-      user: { id: "user_fail", email: "fail@picklepoint.example" },
-      accessToken,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.redirectTo).toMatch(/^\/support\/access/);
-    expect(JSON.stringify(result)).not.toContain("owner");
-    expect(JSON.stringify(result)).not.toContain("org_pickle_point");
+    const location = response.headers.get("location") ?? "";
+    // The redirect destination is the fixed support URL with no query.
+    expect(location).toBe("https://app.example.com/support/access");
+    expect(location).not.toContain("code=");
+    expect(location).not.toContain("state=");
   });
 });
 

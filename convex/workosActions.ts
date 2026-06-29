@@ -323,8 +323,15 @@ export const ingestSignedWebhook = internalAction({
     const normalized = normalizeVerifiedEvent(verified);
 
     // 4. Fetch the user profile from WorkOS so the local user row has
-    //    accurate email/name. Failure is non-fatal; we fall back to
-    //    empty profile fields and rely on a future login to refresh.
+    //    accurate email/name. For a NEW membership (`created`) we MUST
+    //    obtain a verified email before creating the user record; without
+    //    one we fail closed (throw) so WorkOS redelivers the event. We
+    //    never persist a synthetic `<userId>@unknown.workos` address.
+    //    For `updated` events we fetch nothing — the membership payload
+    //    carries role/status only, and the mutation preserves any real
+    //    email already captured at login. Network/auth failures in
+    //    `fetchWorkOSUser` are treated as "no email resolved" so a
+    //    `created` event retries rather than corrupting data.
     let email: string | undefined;
     let fullName: string | undefined;
     if (verified.event === "organization_membership.created") {
@@ -332,6 +339,9 @@ export const ingestSignedWebhook = internalAction({
       const user = await fetchWorkOSUser(workos, normalized.userId);
       email = user.email;
       fullName = user.fullName;
+      if (!email) {
+        throw new Error("EMAIL_REQUIRED: cannot create user without a verified WorkOS email");
+      }
     }
 
     const result = await ctx.runMutation(internal.workosSync.applyEvent, {

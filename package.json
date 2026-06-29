@@ -8,7 +8,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:convex-access": "node scripts/check-convex-access.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
