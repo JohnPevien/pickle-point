@@ -44,12 +44,9 @@ export const requireRoleProbe = internalQuery({
     allowedRoles: v.array(
       v.union(v.literal("owner"), v.literal("game_master"), v.literal("player"))
     ),
-    requireTrustedWorkOSClaim: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { membership } = await requireRole(ctx, args.tenantId, args.allowedRoles, {
-      requireTrustedWorkOSClaim: args.requireTrustedWorkOSClaim,
-    });
+    const { membership } = await requireRole(ctx, args.tenantId, args.allowedRoles);
     return { role: membership.role };
   },
 });

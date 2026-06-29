@@ -190,7 +190,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: owner.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).resolves.toMatchObject({ role: "owner" });
   });
@@ -210,27 +209,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: owner.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
-      })
-    ).rejects.toThrow("FORBIDDEN");
-  });
-
-  test("requireRole rejects owner when WorkOS organization_membership_id claim is wrong", async () => {
-    const t = convexTest(schema, modules);
-    const owner = await seedTenantAndUser(t, "owner-w3");
-    await insertMembership(t, owner, "owner");
-    const authed = t.withIdentity(
-      workosIdentityFor("owner-w3", {
-        organization_id: "org_owner-w3",
-        organization_membership_id: "wos_impostor",
-        role: "owner",
-      })
-    );
-    await expect(
-      authed.query(internal.authzProbe.requireRoleProbe, {
-        tenantId: owner.tenantId as any,
-        allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).rejects.toThrow("FORBIDDEN");
   });
@@ -251,7 +229,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: owner.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).rejects.toThrow("FORBIDDEN");
   });
@@ -270,7 +247,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: owner.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).rejects.toThrow("FORBIDDEN");
   });
@@ -300,7 +276,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: ghost.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).rejects.toThrow("FORBIDDEN");
   });
@@ -322,29 +297,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: owner.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
-      })
-    ).rejects.toThrow("FORBIDDEN");
-  });
-
-  test("requireRole rejects owner when JWT has organization_id but no organization_membership_id claim", async () => {
-    // The local row has a membership id; the JWT must name it too.
-    // Absence is a personal-account JWT, not a trusted org session.
-    const t = convexTest(schema, modules);
-    const owner = await seedTenantAndUser(t, "owner-b2");
-    await insertMembership(t, owner, "owner");
-    const authed = t.withIdentity(
-      workosIdentityFor("owner-b2", {
-        organization_id: "org_owner-b2",
-        // intentionally no organization_membership_id
-        role: "owner",
-      })
-    );
-    await expect(
-      authed.query(internal.authzProbe.requireRoleProbe, {
-        tenantId: owner.tenantId as any,
-        allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).rejects.toThrow("FORBIDDEN");
   });
@@ -369,7 +321,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: owner.tenantId as any,
         allowedRoles: ["owner"],
-        requireTrustedWorkOSClaim: true,
       })
     ).rejects.toThrow("FORBIDDEN");
   });
@@ -389,7 +340,6 @@ describe("Authorization helpers", () => {
       authed.query(internal.authzProbe.requireRoleProbe, {
         tenantId: gm.tenantId as any,
         allowedRoles: ["owner", "game_master"],
-        requireTrustedWorkOSClaim: true,
       })
     ).resolves.toMatchObject({ role: "game_master" });
   });
@@ -488,6 +438,214 @@ describe("Authorization helpers", () => {
         playerId: playerRow as any,
       })
     ).rejects.toThrow("FORBIDDEN");
+  });
+
+  // --- Phase 1 admin-claim regression coverage -----------------------------
+  //
+  // Standard WorkOS AuthKit access tokens do not carry an
+  // `organization_membership_id` claim. The local
+  // `tenantMemberships.workosOrganizationMembershipId` is a separate
+  // projection maintained by reconciliation/webhooks. Admin helpers
+  // must validate the trusted org + role claims automatically whenever
+  // the local membership is owner or game_master; there is no longer a
+  // caller-controlled opt-out.
+
+  /** Build an AuthKit-shaped token: only `org_id` + `role`. */
+  function authkitToken(
+    subjectTag: string,
+    overrides: {
+      organization_id?: string;
+      role?: string | string[];
+      issuer?: string;
+    } = {}
+  ): any {
+    const tokenIdentifier = `https://api.workos.com|${subjectTag}`;
+    const id: Record<string, unknown> = {
+      tokenIdentifier,
+      subject: subjectTag,
+      issuer: overrides.issuer ?? "https://api.workos.com",
+      name: subjectTag,
+      email: `${subjectTag}@example.com`,
+    };
+    if (overrides.organization_id !== undefined) {
+      id["org_id"] = overrides.organization_id;
+    }
+    if (overrides.role !== undefined) {
+      id["role"] = Array.isArray(overrides.role)
+        ? overrides.role
+        : overrides.role;
+    }
+    return id as any;
+  }
+
+  test("requireRole: standard valid token containing only org_id and role succeeds", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-s1");
+    await insertMembership(t, owner, "owner");
+    const authed = t.withIdentity(
+      authkitToken("owner-s1", { organization_id: "org_owner-s1", role: "owner" })
+    );
+    await expect(
+      authed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: owner.tenantId as any,
+        allowedRoles: ["owner"],
+      })
+    ).resolves.toMatchObject({ role: "owner" });
+  });
+
+  test("requireRole: missing org_id is rejected with FORBIDDEN", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-m1");
+    await insertMembership(t, owner, "owner");
+    const authed = t.withIdentity(
+      authkitToken("owner-m1", { role: "owner" })
+    );
+    await expect(
+      authed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: owner.tenantId as any,
+        allowedRoles: ["owner"],
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireRole: missing role is rejected with FORBIDDEN", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-m2");
+    await insertMembership(t, owner, "owner");
+    const authed = t.withIdentity(
+      authkitToken("owner-m2", { organization_id: "org_owner-m2" })
+    );
+    await expect(
+      authed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: owner.tenantId as any,
+        allowedRoles: ["owner"],
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireRole: wrong organization is rejected with FORBIDDEN", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-wr1");
+    await insertMembership(t, owner, "owner");
+    const authed = t.withIdentity(
+      authkitToken("owner-wr1", {
+        organization_id: "org_someone-else",
+        role: "owner",
+      })
+    );
+    await expect(
+      authed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: owner.tenantId as any,
+        allowedRoles: ["owner"],
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireRole: wrong role is rejected with FORBIDDEN", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-wr2");
+    await insertMembership(t, owner, "owner");
+    const authed = t.withIdentity(
+      authkitToken("owner-wr2", {
+        organization_id: "org_owner-wr2",
+        role: "player",
+      })
+    );
+    await expect(
+      authed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: owner.tenantId as any,
+        allowedRoles: ["owner"],
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireRole: validates trusted WorkOS claims without special options", async () => {
+    // Regression: the old `requireTrustedWorkOSClaim: true` opt-in is
+    // gone. The helper must auto-validate for admin roles when no
+    // options object is passed at all.
+    const t = convexTest(schema, modules);
+    const gm = await seedTenantAndUser(t, "gm-auto");
+    await insertMembership(t, gm, "game_master");
+    const validAuthed = t.withIdentity(
+      authkitToken("gm-auto", {
+        organization_id: "org_gm-auto",
+        role: "game_master",
+      })
+    );
+    await expect(
+      validAuthed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: gm.tenantId as any,
+        allowedRoles: ["owner", "game_master"],
+      })
+    ).resolves.toMatchObject({ role: "game_master" });
+
+    const invalidAuthed = t.withIdentity(
+      authkitToken("gm-auto", {
+        organization_id: "org_gm-auto",
+        role: "player",
+      })
+    );
+    await expect(
+      invalidAuthed.query(internal.authzProbe.requireRoleProbe, {
+        tenantId: gm.tenantId as any,
+        allowedRoles: ["owner", "game_master"],
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireOwnPlayer: enforces admin claim validation (rejects missing org_id)", async () => {
+    // Regression: a caller of requireOwnPlayer used to be able to
+    // pass `{ requireTrustedWorkOSClaim: false }` to skip the check.
+    // The new contract is unconditional validation for owner/GM.
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-rop");
+    await insertMembership(t, owner, "owner");
+    const playerRow = await t.run(async (ctx) =>
+      ctx.db.insert("players", {
+        tenantId: owner.tenantId as any,
+        firstName: "Subject",
+        lastName: "Player",
+        skillSource: "manual",
+        manualSkillLevel: "Novice",
+        createdAt: Date.now(),
+      })
+    );
+
+    // Token with no org_id must be rejected even though the caller
+    // has a local owner membership.
+    const authed = t.withIdentity(authkitToken("owner-rop", { role: "owner" }));
+    await expect(
+      authed.query(internal.authzProbe.requireOwnPlayerProbe, {
+        playerId: playerRow as any,
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireOwnPlayer: standard valid token succeeds", async () => {
+    const t = convexTest(schema, modules);
+    const owner = await seedTenantAndUser(t, "owner-rop-ok");
+    await insertMembership(t, owner, "owner");
+    const playerRow = await t.run(async (ctx) =>
+      ctx.db.insert("players", {
+        tenantId: owner.tenantId as any,
+        firstName: "Subject",
+        lastName: "Player",
+        skillSource: "manual",
+        manualSkillLevel: "Novice",
+        createdAt: Date.now(),
+      })
+    );
+    const authed = t.withIdentity(
+      authkitToken("owner-rop-ok", {
+        organization_id: "org_owner-rop-ok",
+        role: "owner",
+      })
+    );
+    await expect(
+      authed.query(internal.authzProbe.requireOwnPlayerProbe, {
+        playerId: playerRow as any,
+      })
+    ).resolves.toMatchObject({ tenantId: owner.tenantId });
   });
 });
 

@@ -11,11 +11,19 @@ import type { Id, Doc } from "../_generated/dataModel";
  * - Stable error codes match the design spec:
  *   UNAUTHENTICATED, FORBIDDEN, MEMBERSHIP_SUSPENDED, PROFILE_REQUIRED,
  *   RESOURCE_NOT_FOUND, TENANT_MISMATCH.
- * - `requireRole` validates the trusted WorkOS organization/role
- *   claims when `requireTrustedWorkOSClaim: true` is passed. The
+ * - For any admin role (owner / game_master), `requireRole` and
+ *   `requireOwnPlayer` automatically validate the trusted WorkOS
+ *   organization / role claims attached to the current JWT. The
  *   validation looks at the actual JWT issuer/claims, not just the
  *   local membership id, so a stale local projection cannot grant
- *   authority after WorkOS revokes the role.
+ *   authority after WorkOS revokes the role. There is no caller-
+ *   controllable opt-out — every admin surface is protected
+ *   unconditionally.
+ * - Standard WorkOS AuthKit access tokens do not carry an
+ *   `organization_membership_id` claim. The local
+ *   `tenantMemberships.workosOrganizationMembershipId` projection,
+ *   maintained by reconciliation/webhooks, is the source of truth for
+ *   membership linkage and must still be present on the local row.
  */
 
 type Ctx = QueryCtx | MutationCtx;
@@ -84,36 +92,44 @@ export async function requireTenantMembership(
 
 export type TenantRole = "owner" | "game_master" | "player";
 
+function isAdminRole(role: TenantRole): boolean {
+  return role === "owner" || role === "game_master";
+}
+
 /**
  * Validate that the caller's membership role is in `allowedRoles`.
  *
- * When `requireTrustedWorkOSClaim` is true (recommended for every
- * admin/owner mutation), the helper additionally validates the
- * trusted WorkOS organization/role claims attached to the current
- * JWT. The validation:
+ * Whenever the resolved membership role is `owner` or `game_master`
+ * (i.e. an admin role), the helper additionally validates the trusted
+ * WorkOS organization/role claims attached to the current JWT. The
+ * validation:
  *
  *   1. Confirms the JWT issuer is the WorkOS issuer URL.
- *   2. Confirms the membership carries a recorded WorkOS linkage.
+ *   2. Confirms the membership carries a recorded WorkOS linkage
+ *      (the local `workosOrganizationMembershipId` projection
+ *      maintained by reconciliation/webhooks).
  *   3. Confirms the tenant's workosOrganizationId matches the
- *      `organization_id` claim (when present).
- *   4. Confirms the membership's workosOrganizationMembershipId
- *      matches the membership-id claim (when present).
- *   5. Confirms the local membership role is one of the roles named
- *      in the JWT's `roles` / `role` claims.
+ *      `organization_id` / `org_id` claim.
+ *   4. Confirms the JWT's `role` / `roles` claim names the
+ *      caller's local membership role.
  *
- * Any mismatch fails closed with FORBIDDEN.
+ * Standard WorkOS AuthKit access tokens do not carry an
+ * `organization_membership_id` claim; the local projection is the
+ * source of truth for membership linkage and is required on the row.
+ * Any mismatch fails closed with FORBIDDEN. There is no caller-
+ * controllable opt-out — every admin surface is protected
+ * unconditionally.
  */
 export async function requireRole(
   ctx: Ctx,
   tenantId: Id<"tenants">,
-  allowedRoles: ReadonlyArray<TenantRole>,
-  options: { requireTrustedWorkOSClaim?: boolean } = {}
+  allowedRoles: ReadonlyArray<TenantRole>
 ): Promise<{ user: Doc<"users">; membership: Doc<"tenantMemberships"> }> {
   const membership = await requireTenantMembership(ctx, tenantId);
   if (!allowedRoles.includes(membership.role)) {
     throw new AppError("FORBIDDEN");
   }
-  if (options.requireTrustedWorkOSClaim) {
+  if (isAdminRole(membership.role)) {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new AppError("UNAUTHENTICATED");
@@ -122,7 +138,7 @@ export async function requireRole(
     if (!tenant) {
       throw new AppError("RESOURCE_NOT_FOUND");
     }
-    validateWorkOSClaim(identity, tenant, membership, allowedRoles);
+    validateWorkOSClaim(identity, tenant, membership);
   }
   const user = await requireAuthenticatedUser(ctx);
   return { user, membership };
@@ -132,7 +148,7 @@ export async function requireOwner(
   ctx: Ctx,
   tenantId: Id<"tenants">
 ): Promise<{ user: Doc<"users">; membership: Doc<"tenantMemberships"> }> {
-  return requireRole(ctx, tenantId, ["owner"], { requireTrustedWorkOSClaim: true });
+  return requireRole(ctx, tenantId, ["owner"]);
 }
 
 /**
@@ -156,22 +172,21 @@ export async function requirePlayerProfile(
  * from the player id. Only admin roles (owner / game_master) may
  * currently act on another tenant's player. Non-admin members
  * fail closed until Task 4.1 wires `players.userId`.
+ *
+ * The admin path is validated via `requireRole`, which automatically
+ * runs the trusted WorkOS claim check for owner / game_master. There
+ * is no caller-controllable opt-out — the admin path cannot bypass
+ * claim validation.
  */
 export async function requireOwnPlayer(
   ctx: Ctx,
-  playerId: Id<"players">,
-  options: { requireTrustedWorkOSClaim?: boolean } = {}
+  playerId: Id<"players">
 ): Promise<{ player: Doc<"players">; user: Doc<"users">; membership: Doc<"tenantMemberships"> }> {
   const player = await ctx.db.get(playerId);
   if (!player) {
     throw new AppError("RESOURCE_NOT_FOUND");
   }
-  const admin = await requireRole(
-    ctx,
-    player.tenantId,
-    ["owner", "game_master"],
-    options
-  );
+  const admin = await requireRole(ctx, player.tenantId, ["owner", "game_master"]);
   return { player, ...admin };
 }
 
@@ -203,15 +218,18 @@ export async function requireOwnParticipation(
  * Phase 1 WorkOS AuthKit claim shape (from `convex/auth.config.ts`):
  * - `identity.issuer` is the WorkOS issuer URL.
  * - `identity.subject` is the WorkOS user id.
- * - Custom claims (Phase 2 webhook reconciliation will normalize
- *   these): `organization_id`, `organization_membership_id`,
- *   `role` / `roles`.
+ * - Custom claims: `organization_id` / `org_id` and `role` / `roles`.
+ *
+ * Standard AuthKit access tokens do NOT carry an
+ * `organization_membership_id` claim; the local
+ * `tenantMemberships.workosOrganizationMembershipId` projection
+ * (maintained by reconciliation/webhooks) is the source of truth for
+ * membership linkage and is required on the local row.
  */
 function validateWorkOSClaim(
   identity: { issuer?: string; subject?: string; [k: string]: unknown },
   tenant: Doc<"tenants">,
-  membership: Doc<"tenantMemberships">,
-  requiredRoles: ReadonlyArray<TenantRole>
+  membership: Doc<"tenantMemberships">
 ): void {
   // 1. Issuer must be WorkOS. We refuse any other issuer rather than
   //    trusting a developer-supplied alternative configuration.
@@ -220,8 +238,8 @@ function validateWorkOSClaim(
   }
 
   // 2. The membership must carry a WorkOS linkage recorded by the
-  //    webhook reconciler (Task 2.2). Without it we cannot trust
-  //    the local role against the trusted claim.
+  //    webhook reconciler. Without it we cannot trust the local
+  //    role against the trusted claim.
   if (!membership.workosOrganizationMembershipId) {
     throw new AppError("FORBIDDEN");
   }
@@ -230,9 +248,7 @@ function validateWorkOSClaim(
   //    always carry an `organization_id` (or legacy `org_id`) custom
   //    claim. Absence means the JWT is a personal-account session
   //    without an organization context — admin helpers must reject
-  //    rather than silently skip the check. (This closes the bypass
-  //    where a stale local projection + a non-org JWT would have
-  //    slipped through under the previous "if present" logic.)
+  //    rather than silently skip the check.
   const claimOrgId =
     (identity["organization_id"] as string | undefined) ??
     (identity["org_id"] as string | undefined);
@@ -243,30 +259,12 @@ function validateWorkOSClaim(
     throw new AppError("FORBIDDEN");
   }
 
-  // 4. The JWT must name a membership id that matches the local row's
-  //    WorkOS linkage. Absence again means a personal-account JWT;
-  //    reject rather than trust the local projection alone.
-  const claimMembershipId =
-    (identity["organization_membership_id"] as string | undefined) ??
-    (identity["workos_membership_id"] as string | undefined);
-  if (!claimMembershipId) {
-    throw new AppError("FORBIDDEN");
-  }
-  if (claimMembershipId !== membership.workosOrganizationMembershipId) {
-    throw new AppError("FORBIDDEN");
-  }
-
-  // 5. The JWT must name at least one of the roles the caller is
-  //    attempting to claim, and the local membership role must be
-  //    among the named roles. WorkOS custom claims may carry `roles`
-  //    (array) or a single `role` string.
+  // 4. The JWT must name the caller's local membership role (WorkOS
+  //    custom claims may carry `roles` (array) or a single `role`
+  //    string). WorkOS AuthKit tokens do not carry a
+  //    `organization_membership_id` claim; we do not require it.
   const claimRoles = readRolesFromIdentity(identity);
   if (claimRoles.length === 0) {
-    throw new AppError("FORBIDDEN");
-  }
-  const required = new Set<string>(requiredRoles);
-  const intersects = claimRoles.some((r) => required.has(r));
-  if (!intersects) {
     throw new AppError("FORBIDDEN");
   }
   if (!claimRoles.includes(membership.role)) {
