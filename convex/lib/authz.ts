@@ -267,9 +267,20 @@ function validateWorkOSClaim(
   if (claimRoles.length === 0) {
     throw new AppError("FORBIDDEN");
   }
-  if (!claimRoles.includes(membership.role)) {
+  // Map the local membership role back to the WorkOS slugs that
+  // authorise it. `owner` is granted by `owner` or `admin`; the
+  // callback path maps `admin` to `owner` for storage so the inverse
+  // is needed here. `game_master` is granted by its own slug or `gm`.
+  const authorizedSlugs = expandRole(membership.role);
+  if (!claimRoles.some((role) => authorizedSlugs.includes(role.toLowerCase()))) {
     throw new AppError("FORBIDDEN");
   }
+}
+
+function expandRole(role: TenantRole): string[] {
+  if (role === "owner") return ["owner", "admin"];
+  if (role === "game_master") return ["game_master", "gm"];
+  return [role];
 }
 
 function readRolesFromIdentity(identity: { [k: string]: unknown }): string[] {

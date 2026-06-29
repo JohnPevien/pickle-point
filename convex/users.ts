@@ -113,6 +113,15 @@ export const reconcileUserAndMembership = internalMutation({
       v.literal("player")
     ),
     workosOrganizationMembershipId: v.optional(v.string()),
+    // When present, applied directly to the membership. Used by the
+    // WorkOS webhook path so that a `pending`/`inactive` membership in
+    // WorkOS suspends the local row (and an `active` membership
+    // re-activates it). When absent, the existing local status is
+    // preserved — the user-initiated callback path does NOT override
+    // explicit local suspensions.
+    status: v.optional(
+      v.union(v.literal("active"), v.literal("suspended"))
+    ),
   },
   handler: async (ctx, args): Promise<{ userId: Id<"users">; membershipId: Id<"tenantMemberships"> }> => {
     const tenant = await ctx.db.get(args.tenantId);
@@ -196,16 +205,23 @@ export const reconcileUserAndMembership = internalMutation({
 
     let membershipId: Id<"tenantMemberships">;
     if (existingMembership) {
+      // When the WorkOS webhook passes `status`, it is authoritative —
+      // pending / inactive memberships suspend locally, an active
+      // status re-activates. When absent, preserve any explicit local
+      // suspension (callback path) — the default re-activates a
+      // previously-active row only.
+      const nextStatus: "active" | "suspended" = args.status
+        ? args.status
+        : existingMembership.status === "suspended"
+          ? "suspended"
+          : "active";
+
       await ctx.db.patch(existingMembership._id, {
         role: args.role,
         workosOrganizationMembershipId:
           args.workosOrganizationMembershipId ?? existingMembership.workosOrganizationMembershipId,
         updatedAt: now,
-        // A previously suspended membership is reactivated when WorkOS
-        // re-grants the role; explicit local suspensions by an owner
-        // are preserved by not changing status on patch unless it was
-        // already active. Phase 3 introduces a dedicated suspension API.
-        status: existingMembership.status === "suspended" ? "suspended" : "active",
+        status: nextStatus,
       });
       membershipId = existingMembership._id;
     } else {
@@ -213,7 +229,7 @@ export const reconcileUserAndMembership = internalMutation({
         tenantId: args.tenantId,
         userId,
         role: args.role,
-        status: "active",
+        status: args.status ?? "active",
         workosOrganizationMembershipId: args.workosOrganizationMembershipId,
         createdAt: now,
         updatedAt: now,

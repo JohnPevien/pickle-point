@@ -1,7 +1,8 @@
 import { v } from "convex/values";
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireOwner, AppError } from "./lib/authz";
 
 type WorkspaceInput = {
   name: string;
@@ -103,20 +104,6 @@ async function getUserByTokenIdentifier(ctx: QueryCtx | MutationCtx, tokenIdenti
     .first();
 }
 
-async function requireCurrentUser(ctx: MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    return { success: false as const, error: "Authentication required." };
-  }
-
-  const user = await getUserByTokenIdentifier(ctx, identity.tokenIdentifier);
-  if (!user) {
-    return { success: false as const, error: "Workspace owner not found." };
-  }
-
-  return { success: true as const, identity, user };
-}
-
 /**
  * Resolves a Game Master's workspace (tenant) by its ID.
  * Returns null if the provided ID is not a valid Convex ID.
@@ -158,75 +145,19 @@ export const getCurrentWorkspace = query({
 });
 
 /**
- * Creates a tenant workspace for the authenticated user, or returns their existing workspace.
+ * Phase 2.4 — public workspace creation has been removed.
+ *
+ * The MVP topology is one fixed tenant seeded by an internal bootstrap
+ * (`bootstrapFixedTenant`) and never created from the browser. The
+ * tenant-creation surface previously exposed here is replaced by:
+ *   - the internal `bootstrapFixedTenant` mutation for operators;
+ *   - the canonical `WORKOS_ORGANIZATION_ID` env-driven lookup at
+ *     callback time (`convex/callback.ts`).
+ *
+ * No public mutation may create a tenant. No UI surface may invite
+ * itself into the workspace. This invariant protects the multi-tenant
+ * upgrade path.
  */
-export const createWorkspace = mutation({
-  args: workspaceFieldsValidator,
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return { success: false, error: "Authentication required." };
-    }
-
-    const normalized = normalizeWorkspaceInput(args);
-    if (!normalized.success) {
-      return { success: false, error: normalized.error };
-    }
-
-    const existingUser = await getUserByTokenIdentifier(ctx, identity.tokenIdentifier);
-    if (existingUser) {
-      const existingTenant = await ctx.db.get(existingUser.tenantId);
-      if (existingTenant) {
-        return {
-          success: true,
-          tenantId: existingUser.tenantId,
-          created: false,
-        };
-      }
-    }
-
-    const tenantId = await ctx.db.insert("tenants", {
-      ...normalized.workspace,
-      slug: slugifyTenantName(normalized.workspace.name),
-      timezone: "Asia/Manila",
-      workosOrganizationId: `local_${Date.now()}`,
-      status: "active",
-      createdAt: Date.now(),
-    });
-
-    const email = identity.email ?? normalized.workspace.contactEmail;
-    const emailNormalized = email.trim().toLowerCase();
-    // The WorkOS AuthKit subject claim is the canonical workosUserId.
-    // Fall back to the token subject segment when unavailable.
-    const workosUserId =
-      identity.subject ?? identity.tokenIdentifier.split("|").pop() ?? identity.tokenIdentifier;
-
-    if (existingUser) {
-      await ctx.db.patch(existingUser._id, {
-        tenantId,
-        email,
-        emailNormalized,
-        workosUserId,
-        fullName: identity.name ?? existingUser.fullName,
-        lastSeenAt: Date.now(),
-      });
-    } else {
-      const now = Date.now();
-      await ctx.db.insert("users", {
-        tokenIdentifier: identity.tokenIdentifier,
-        workosUserId,
-        email,
-        emailNormalized,
-        fullName: identity.name,
-        tenantId,
-        createdAt: now,
-        lastSeenAt: now,
-      });
-    }
-
-    return { success: true, tenantId, created: true };
-  },
-});
 
 /**
  * Updates workspace branding and contact fields for the authenticated workspace owner.
@@ -237,13 +168,18 @@ export const updateWorkspace = mutation({
     ...workspaceFieldsValidator,
   },
   handler: async (ctx, args) => {
-    const currentUser = await requireCurrentUser(ctx);
-    if (!currentUser.success) {
-      return { success: false, error: currentUser.error };
-    }
-
-    if (currentUser.user.tenantId !== args.tenantId) {
-      return { success: false, error: "Workspace access denied." };
+    // Owner-only. requireOwner validates the identity, the local
+    // active membership, AND the trusted WorkOS JWT claims. A player
+    // or unauthenticated user attempting to update branding now fails
+    // closed with FORBIDDEN before any DB write.
+    try {
+      await requireOwner(ctx, args.tenantId);
+    } catch (error) {
+      const message =
+        error instanceof AppError
+          ? error.message
+          : "Workspace access denied.";
+      return { success: false, error: message };
     }
 
     const normalized = normalizeWorkspaceInput(args);
@@ -352,6 +288,30 @@ export const getPublicBySlug = query({
  * tenant. Selection of the canonical tenant is explicit (by slug +
  * workosOrganizationId), never by arbitrary first-row order.
  */
+export const findByOrgId = internalQuery({
+  args: { workosOrganizationId: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("tenants")
+      .withIndex("by_workosOrganizationId", (q) =>
+        q.eq("workosOrganizationId", args.workosOrganizationId)
+      )
+      .first();
+    return row ?? null;
+  },
+});
+
+export const findBySlug = internalQuery({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("tenants")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    return row ?? null;
+  },
+});
+
 export const bootstrapFixedTenant = internalMutation({
   args: {
     slug: v.string(),

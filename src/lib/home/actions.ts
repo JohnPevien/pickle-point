@@ -1,4 +1,4 @@
-export type HomeActionKey = "setup" | "sign-in" | "docs";
+export type HomeActionKey = "sign-in" | "sign-up" | "docs";
 
 export type HomeAction = {
   key: HomeActionKey;
@@ -10,17 +10,17 @@ export type HomeAction = {
 
 export const HOME_ACTIONS: HomeAction[] = [
   {
-    key: "setup",
-    label: "Create workspace",
-    href: "/setup",
-    description: "Set up your Game Master workspace and club profile.",
-    variant: "primary",
-  },
-  {
     key: "sign-in",
     label: "Sign in",
     href: "/sign-in",
-    description: "Continue to your protected Game Master workspace.",
+    description: "Continue to your protected Game Master or player workspace.",
+    variant: "primary",
+  },
+  {
+    key: "sign-up",
+    label: "Register",
+    href: "/sign-up",
+    description: "Create a verified player account for the Pickle Point workspace.",
     variant: "secondary",
   },
   {

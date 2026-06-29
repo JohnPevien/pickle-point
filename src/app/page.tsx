@@ -37,7 +37,7 @@ export default function Home() {
             Pickle Point
           </Link>
           <div className="flex items-center gap-2">
-            {HOME_ACTIONS.filter((action) => action.key !== "setup").map((action) => (
+            {HOME_ACTIONS.map((action) => (
               <Link
                 key={action.key}
                 href={action.href}

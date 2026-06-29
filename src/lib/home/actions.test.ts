@@ -4,16 +4,16 @@ import { HOME_ACTIONS, getHomeAction } from "./actions";
 describe("home actions", () => {
   test("exposes the MVP entry routes in display order", () => {
     expect(HOME_ACTIONS.map((action) => action.href)).toEqual([
-      "/setup",
       "/sign-in",
+      "/sign-up",
       "/docs",
     ]);
   });
 
-  test("marks setup as the primary action", () => {
-    expect(getHomeAction("setup")).toMatchObject({
-      label: "Create workspace",
-      href: "/setup",
+  test("marks sign-in as the primary action", () => {
+    expect(getHomeAction("sign-in")).toMatchObject({
+      label: "Sign in",
+      href: "/sign-in",
       variant: "primary",
     });
   });
