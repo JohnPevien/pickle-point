@@ -12,5 +12,9 @@ export default defineConfig({
   },
   test: {
     environment: "edge-runtime",
+    env: {
+      NODE_ENV: "test",
+      ALLOW_AUTH_TEST_BYPASS: "1",
+    },
   },
 });

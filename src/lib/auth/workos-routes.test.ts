@@ -44,6 +44,34 @@ vi.mock("@/lib/source", () => ({ source: {} }));
 vi.mock("next/navigation", () => navigationMocks);
 vi.mock("next/headers", () => nextHeadersMocks);
 
+// Hoisted mock for `@/lib/convex/internal` so that any code path that
+// imports `reconcile.ts` (which in turn imports the internal client)
+// is intercepted even before this test file's body runs. The mock
+// state lives on a `vi.hoisted` shared object so it survives
+// `vi.resetModules()` — which clears module identity but preserves
+// the hoisted reference.
+const convexInternalShared = vi.hoisted(() => {
+  type AnyFunction = (args: unknown) => Promise<unknown>;
+  const resolvers: Record<string, AnyFunction> = {};
+  const calls: string[] = [];
+  return {
+    resolvers,
+    calls,
+    invoke: async (path: string, args: unknown) => {
+      calls.push(path);
+      const fn = resolvers[path];
+      if (!fn) {
+        throw new Error(`No mock registered for convex internal endpoint ${path}`);
+      }
+      return await fn(args);
+    },
+  };
+});
+
+vi.mock("@/lib/convex/internal", () => ({
+  invokeInternalAction: convexInternalShared.invoke,
+}));
+
 const workosEnvKeys = [
   "NODE_ENV",
   "WORKOS_CLIENT_ID",
@@ -129,10 +157,14 @@ describe("AuthKit page routes", () => {
     authkitMocks.getSignInUrl.mockResolvedValue("https://workos.example.com/sign-in");
 
     const { GET } = await import("../../app/sign-in/route");
-    await GET(new Request("https://app.example.com/sign-in?returnTo=%2Fsetup%3Ftheme%3Dgaming"));
+    await GET(
+      new Request(
+        "https://app.example.com/sign-in?returnTo=%2Fpickle-point%2Fdashboard%3Ftab%3Dhistory"
+      )
+    );
 
     expect(authkitMocks.getSignInUrl).toHaveBeenCalledWith({
-      returnTo: "/setup?theme=gaming",
+      returnTo: "/pickle-point/dashboard?tab=history",
     });
   });
 
@@ -168,7 +200,229 @@ describe("AuthKit page routes", () => {
   });
 });
 
-describe("setup page authentication", () => {
+// -------------------------------------------------------------------------
+// Task 2.3: login/callback membership reconciliation
+// -------------------------------------------------------------------------
+
+// Hoisted once: the verifier survives `vi.resetModules` because both
+// reconcile.ts and the test reference this same shared reference.
+const fakeJwtVerifier = vi.hoisted(() => {
+  return async (accessToken: string, expectedSubject: string) => {
+    const parts = accessToken.split(".");
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf8")
+    ) as Record<string, unknown>;
+    if (typeof payload["sub"] !== "string" || payload["sub"].length === 0) {
+      throw new Error("missing sub");
+    }
+    if (payload["sub"] !== expectedSubject) {
+      throw new Error("sub mismatch");
+    }
+    const orgId =
+      (payload["organization_id"] as string | undefined) ??
+      (payload["org_id"] as string | undefined);
+    const roles = payload["roles"];
+    const role =
+      Array.isArray(roles) && typeof roles[0] === "string"
+        ? roles[0]
+        : typeof roles === "string"
+          ? roles
+          : typeof payload["role"] === "string"
+            ? payload["role"]
+            : undefined;
+    return {
+      subject: payload["sub"],
+      organizationId: orgId,
+      role,
+    };
+  };
+});
+
+describe("callback reconciliation", () => {
+  function encodeAccessToken(payload: Record<string, unknown>): string {
+    const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+    const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    return `${header}.${body}.signature`;
+  }
+
+  beforeEach(async () => {
+    // The reconcile module's module-scoped override is reset by
+    // vi.resetModules, so re-install the verifier on every test.
+    const { __setAccessTokenVerifier } = await import("../auth/reconcile");
+    __setAccessTokenVerifier(fakeJwtVerifier);
+  });
+
+  test("owner claims drive reconciliation against the fixed tenant", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const convexInternalMocks = convexInternalShared;
+    convexInternalMocks.calls.length = 0;
+    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
+      status: "reconciled",
+    }));
+
+    authkitMocks.callbackHandler.mockResolvedValue(
+      new Response(null, { status: 302, headers: { location: "/dashboard" } })
+    );
+
+    const accessToken = encodeAccessToken({
+      sub: "user_001",
+      org_id: "org_pickle_point",
+      role: "owner",
+    });
+
+    const { reconcileWorkosCallback } = await import("../auth/reconcile");
+    const result = await reconcileWorkosCallback({
+      user: {
+        id: "user_001",
+        email: "owner@picklepoint.example",
+        firstName: "Ada",
+        lastName: "Lovelace",
+      },
+      accessToken,
+    });
+
+    expect(convexInternalMocks.calls).toContain("/internal/reconcile-callback");
+    expect(
+      convexInternalMocks.resolvers["/internal/reconcile-callback"]
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workosUserId: "user_001",
+        organizationId: "org_pickle_point",
+        role: "owner",
+      })
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  test("ordinary player login (no organization claim) never invents an admin role", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const convexInternalMocks = convexInternalShared;
+    convexInternalMocks.calls.length = 0;
+    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
+      status: "reconciled",
+    }));
+
+    // Personal-account JWT — no organization claim.
+    const accessToken = encodeAccessToken({ sub: "user_player" });
+    const { reconcileWorkosCallback } = await import("../auth/reconcile");
+    await reconcileWorkosCallback({
+      user: {
+        id: "user_player",
+        email: "player@picklepoint.example",
+      },
+      accessToken,
+    });
+
+    const call =
+      convexInternalMocks.resolvers["/internal/reconcile-callback"].mock.calls.at(-1)?.[0];
+    expect(call).toBeDefined();
+    expect(call.role).toBe("player");
+    expect(call.organizationId).toBeUndefined();
+  });
+
+  test("JWT role claim is the authoritative source", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const convexInternalMocks = convexInternalShared;
+    convexInternalMocks.calls.length = 0;
+    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
+      status: "reconciled",
+    }));
+
+    // JWT carries role=owner; we trust that claim.
+    const accessToken = encodeAccessToken({
+      sub: "user_002",
+      org_id: "org_pickle_point",
+      role: "owner",
+    });
+    const { reconcileWorkosCallback } = await import("../auth/reconcile");
+    await reconcileWorkosCallback({
+      user: { id: "user_002", email: "owner2@picklepoint.example" },
+      accessToken,
+    });
+
+    const call =
+      convexInternalMocks.resolvers["/internal/reconcile-callback"].mock.calls.at(-1)?.[0];
+    expect(call.role).toBe("owner");
+  });
+
+  test("JWT with wrong organization claim returns safe support route, no DB write", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const convexInternalMocks = convexInternalShared;
+    convexInternalMocks.calls.length = 0;
+
+    const accessToken = encodeAccessToken({
+      sub: "user_cross",
+      org_id: "org_someone_else",
+      role: "owner",
+    });
+    const { reconcileWorkosCallback } = await import("../auth/reconcile");
+    const result = await reconcileWorkosCallback({
+      user: { id: "user_cross", email: "cross@picklepoint.example" },
+      accessToken,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.redirectTo).toMatch(/^\/support\/access/);
+    expect(convexInternalMocks.calls).toHaveLength(0);
+  });
+
+  test("replay is idempotent and never errors when the user/membership already exists", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const convexInternalMocks = convexInternalShared;
+    convexInternalMocks.calls.length = 0;
+    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => ({
+      status: "reconciled",
+    }));
+
+    const accessToken = encodeAccessToken({
+      sub: "user_dup",
+      org_id: "org_pickle_point",
+      role: "game_master",
+    });
+    const { reconcileWorkosCallback } = await import("../auth/reconcile");
+    const first = await reconcileWorkosCallback({
+      user: { id: "user_dup", email: "dup@picklepoint.example" },
+      accessToken,
+    });
+    const second = await reconcileWorkosCallback({
+      user: { id: "user_dup", email: "dup@picklepoint.example" },
+      accessToken,
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(
+      convexInternalMocks.resolvers["/internal/reconcile-callback"]
+    ).toHaveBeenCalledTimes(2);
+  });
+
+  test("reconciliation failure returns a safe support route without leaking claims", async () => {
+    setWorkosEnv({ ...completeWorkosEnv, WORKOS_ORGANIZATION_ID: "org_pickle_point" });
+    const convexInternalMocks = convexInternalShared;
+    convexInternalMocks.calls.length = 0;
+    convexInternalMocks.resolvers["/internal/reconcile-callback"] = vi.fn(async () => {
+      throw new Error("network down");
+    });
+
+    const accessToken = encodeAccessToken({
+      sub: "user_fail",
+      org_id: "org_pickle_point",
+      role: "owner",
+    });
+    const { reconcileWorkosCallback } = await import("../auth/reconcile");
+    const result = await reconcileWorkosCallback({
+      user: { id: "user_fail", email: "fail@picklepoint.example" },
+      accessToken,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.redirectTo).toMatch(/^\/support\/access/);
+    expect(JSON.stringify(result)).not.toContain("owner");
+    expect(JSON.stringify(result)).not.toContain("org_pickle_point");
+  });
+});
+
+describe("public workspace route authentication", () => {
   test("sends a logged-out user through the sign-in route without asking AuthKit to redirect during render", async () => {
     setWorkosEnv(completeWorkosEnv);
     authkitMocks.withAuth.mockImplementation(async (options?: { ensureSignedIn?: boolean }) => {
@@ -179,20 +433,19 @@ describe("setup page authentication", () => {
       return { user: null };
     });
     nextHeadersMocks.headers.mockResolvedValue(
-      new Headers({ "x-url": "https://app.example.com/setup?theme=gaming" }),
+      new Headers({ "x-url": "https://app.example.com/pickle-point/dashboard?tab=history" }),
     );
     navigationMocks.redirect.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
     });
 
-    const { default: SetupPage } = await import("../../app/setup/page");
+    const { requireWorkosAuth } = await import("../auth/server");
 
-    await expect(SetupPage()).rejects.toThrow("NEXT_REDIRECT");
+    await expect(requireWorkosAuth()).rejects.toThrow("NEXT_REDIRECT");
     expect(authkitMocks.withAuth).toHaveBeenCalledWith();
     expect(navigationMocks.redirect).toHaveBeenCalledWith(
-      "/sign-in?returnTo=%2Fsetup%3Ftheme%3Dgaming",
+      "/sign-in?returnTo=%2Fpickle-point%2Fdashboard%3Ftab%3Dhistory",
     );
-    expect(convexMocks.fetchQuery).not.toHaveBeenCalled();
   });
 });
 
