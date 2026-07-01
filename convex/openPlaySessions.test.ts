@@ -131,6 +131,193 @@ async function createSession(t: TestInstance, tenantId: Id<"tenants">): Promise<
   return result as Id<"openPlaySessions">;
 }
 
+async function seedRoleActor(
+  t: TestInstance,
+  tenantId: Id<"tenants">,
+  role: "owner" | "game_master" | "player",
+  tokenIdentifier: string,
+): Promise<TestInstance> {
+  const workosOrganizationId = await t.run(async (ctx) => {
+    const tenant = await ctx.db.get(tenantId);
+    if (!tenant?.workosOrganizationId) {
+      throw new Error("seeded tenant is missing workosOrganizationId");
+    }
+    const userId = await ctx.db.insert("users", {
+      tokenIdentifier,
+      email: `${tokenIdentifier}@testclub.com`,
+      tenantId,
+      createdAt: Date.now(),
+    });
+    const now = Date.now();
+    await ctx.db.insert("tenantMemberships", {
+      tenantId,
+      userId,
+      role,
+      status: "active",
+      workosOrganizationMembershipId: `mem_${tokenIdentifier}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return tenant.workosOrganizationId;
+  });
+
+  return t.withIdentity({
+    tokenIdentifier,
+    issuer: WORKOS_ISSUER,
+    organization_id: workosOrganizationId,
+    role,
+  }) as unknown as TestInstance;
+}
+
+async function seedOperationAuthorizationFixture() {
+  const base = convexTest(schema, modules);
+  const { tenantId, asAdmin } = await seedTenantAuth(base);
+  const owner = asAdmin();
+  const gameMaster = await seedRoleActor(base, tenantId, "game_master", "gm_token");
+  const playerActor = await seedRoleActor(base, tenantId, "player", "player_token");
+
+  const otherTenantId = await base.run(async (ctx) =>
+    ctx.db.insert("tenants", {
+      name: "Other Test Club",
+      contactEmail: "other@testclub.com",
+      slug: "other-test-club",
+      timezone: "Asia/Manila",
+      workosOrganizationId: "org_other_test_club",
+      status: "active",
+      createdAt: Date.now(),
+    }),
+  );
+  const crossTenantOwner = await seedRoleActor(
+    base,
+    otherTenantId,
+    "owner",
+    "other_owner_token",
+  );
+
+  const sessionId = await createSession(owner, tenantId);
+  await owner.mutation(api.openPlaySessions.updateSessionStatus, {
+    sessionId,
+    status: "live",
+  });
+
+  const playerIds: Id<"players">[] = [];
+  for (let index = 0; index < 6; index++) {
+    playerIds.push(
+      await seedPlayer(base, tenantId, {
+        firstName: `Auth${index}`,
+      }),
+    );
+  }
+  for (const playerId of playerIds.slice(0, 5)) {
+    await owner.mutation(api.openPlaySessions.checkInPlayer, { sessionId, playerId });
+  }
+
+  const generated = await owner.mutation(api.openPlaySessions.generateMatches, { sessionId });
+  if (!generated.success) throw new Error("match generation failed");
+  const activeMatches = (
+    await owner.query(api.openPlaySessions.getLiveMatches, { sessionId })
+  ).entries;
+  const match = activeMatches[0];
+  if (!match) throw new Error("expected an active match");
+
+  return {
+    base,
+    owner,
+    gameMaster,
+    playerActor,
+    crossTenantOwner,
+    tenantId,
+    sessionId,
+    match,
+    sparePlayerId: playerIds[4],
+    uncheckedPlayerId: playerIds[5],
+  };
+}
+
+type OperationAuthorizationFixture = Awaited<
+  ReturnType<typeof seedOperationAuthorizationFixture>
+>;
+
+const protectedOperationCases = [
+  {
+    name: "checkInPlayer",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.checkInPlayer, {
+        sessionId: fixture.sessionId,
+        playerId: fixture.uncheckedPlayerId,
+      }),
+  },
+  {
+    name: "registerAndCheckInGuest",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.registerAndCheckInGuest, {
+        tenantId: fixture.tenantId,
+        sessionId: fixture.sessionId,
+        firstName: "Walk",
+        lastName: "In",
+        skillTier: "Beginner",
+      }),
+  },
+  {
+    name: "updatePlayerStatus",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.updatePlayerStatus, {
+        sessionId: fixture.sessionId,
+        playerId: fixture.match.team1[0],
+        status: "paused",
+      }),
+  },
+  {
+    name: "generateMatches",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.generateMatches, {
+        sessionId: fixture.sessionId,
+      }),
+  },
+  {
+    name: "recordMatchScore",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.recordMatchScore, {
+        matchId: fixture.match._id,
+        score1: 11,
+        score2: 7,
+      }),
+  },
+  {
+    name: "updateMatchCourt",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.updateMatchCourt, {
+        matchId: fixture.match._id,
+        courtName: "Championship Court",
+      }),
+  },
+  {
+    name: "swapMatchPlayers",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.swapMatchPlayers, {
+        matchId: fixture.match._id,
+        playerAId: fixture.match.team1[0],
+        playerBId: fixture.match.team2[0],
+      }),
+  },
+  {
+    name: "substituteMatchPlayer",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.substituteMatchPlayer, {
+        matchId: fixture.match._id,
+        outgoingPlayerId: fixture.match.team1[0],
+        incomingPlayerId: fixture.sparePlayerId,
+      }),
+  },
+  {
+    name: "cancelMatch",
+    invoke: (t: TestInstance, fixture: OperationAuthorizationFixture) =>
+      t.mutation(api.openPlaySessions.cancelMatch, {
+        matchId: fixture.match._id,
+      }),
+  },
+] as const;
+
 describe("Open Play Sessions", () => {
   // -------------------------------------------------------------------------
   // Session Lifecycle Tests
@@ -1612,3 +1799,50 @@ describe("Open Play Sessions", () => {
       expect(adminHistory.map((m) => m.status).sort()).toEqual(["cancelled", "completed"]);
     });
   });
+
+describe("Task 3.4 operation authorization", () => {
+  test.each(protectedOperationCases)(
+    "$name rejects unauthenticated, player-role, and cross-tenant callers",
+    async ({ invoke }) => {
+      const fixture = await seedOperationAuthorizationFixture();
+
+      await expect(invoke(fixture.base, fixture)).rejects.toThrow(/UNAUTHENTICATED/);
+      await expect(invoke(fixture.playerActor, fixture)).rejects.toThrow(/FORBIDDEN/);
+      await expect(invoke(fixture.crossTenantOwner, fixture)).rejects.toThrow(/FORBIDDEN/);
+    },
+  );
+
+  test("a Game Master can check in a player", async () => {
+    const fixture = await seedOperationAuthorizationFixture();
+
+    const result = await fixture.gameMaster.mutation(api.openPlaySessions.checkInPlayer, {
+      sessionId: fixture.sessionId,
+      playerId: fixture.uncheckedPlayerId,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  test("a Game Master can adjust an active match", async () => {
+    const fixture = await seedOperationAuthorizationFixture();
+
+    const result = await fixture.gameMaster.mutation(api.openPlaySessions.updateMatchCourt, {
+      matchId: fixture.match._id,
+      courtName: "Championship Court",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  test("a Game Master can record a match score", async () => {
+    const fixture = await seedOperationAuthorizationFixture();
+
+    const result = await fixture.gameMaster.mutation(api.openPlaySessions.recordMatchScore, {
+      matchId: fixture.match._id,
+      score1: 11,
+      score2: 7,
+    });
+
+    expect(result.success).toBe(true);
+  });
+});

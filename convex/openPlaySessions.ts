@@ -331,13 +331,13 @@ export const checkInPlayer = mutation({
     playerId: v.id("players"),
   },
   handler: async (ctx, args) => {
-    const [session, player] = await Promise.all([
-      ctx.db.get(args.sessionId),
-      ctx.db.get(args.playerId),
-    ]);
+    const session = await ctx.db.get(args.sessionId);
     if (!session) {
       return { success: false, error: "Session not found." };
     }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
+    const player = await ctx.db.get(args.playerId);
     if (!player) {
       return { success: false, error: "Player not found." };
     }
@@ -406,6 +406,8 @@ export const registerAndCheckInGuest = mutation({
     if (!session) {
       return { success: false, error: "Session not found." };
     }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
     if (session.tenantId !== args.tenantId) {
       return { success: false, error: "Session workspace mismatch." };
     }
@@ -500,6 +502,20 @@ export const updatePlayerStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
+    if (player.tenantId !== session.tenantId) {
+      return { success: false, error: "Player workspace mismatch." };
+    }
+
     const record = await ctx.db
       .query("sessionPlayers")
       .withIndex("by_sessionId_and_playerId", (q) =>
@@ -573,6 +589,8 @@ export const generateMatches = mutation({
     if (!session) {
       return { success: false, error: "Session not found." };
     }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
     if (session.status !== "live") {
       return { success: false, error: "Matches can only be generated for live sessions." };
     }
@@ -752,16 +770,18 @@ export const recordMatchScore = mutation({
     if (!match) {
       return { success: false, error: "Match not found." };
     }
+
+    const session = await ctx.db.get(match.sessionId);
+    if (!session) {
+      return { success: false, error: "Associated session not found." };
+    }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
     if (match.status === "completed") {
       return { success: false, error: "Match is already completed." };
     }
     if (match.status === "cancelled") {
       return { success: false, error: "Cannot record a score on a cancelled match." };
-    }
-
-    const session = await ctx.db.get(match.sessionId);
-    if (!session) {
-      return { success: false, error: "Associated session not found." };
     }
     if (args.score1 < 0 || args.score2 < 0) {
       return { success: false, error: "Scores cannot be negative." };
@@ -988,6 +1008,12 @@ export const updateMatchCourt = mutation({
     if (!match) {
       return { success: false, error: "Match not found." };
     }
+    const session = await ctx.db.get(match.sessionId);
+    if (!session) {
+      return { success: false, error: "Associated session not found." };
+    }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
     if (match.status === "completed" || match.status === "cancelled") {
       return { success: false, error: "Cannot rename a completed or cancelled match." };
     }
@@ -1013,6 +1039,12 @@ export const swapMatchPlayers = mutation({
     if (!match) {
       return { success: false, error: "Match not found." };
     }
+    const session = await ctx.db.get(match.sessionId);
+    if (!session) {
+      return { success: false, error: "Associated session not found." };
+    }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
     if (match.status === "completed" || match.status === "cancelled") {
       return { success: false, error: "Cannot adjust a completed or cancelled match." };
     }
@@ -1075,13 +1107,18 @@ export const substituteMatchPlayer = mutation({
     incomingPlayerId: v.id("players"),
   },
   handler: async (ctx, args) => {
-    if (args.outgoingPlayerId === args.incomingPlayerId) {
-      return { success: false, error: "Outgoing and incoming player cannot be the same." };
-    }
-
     const match = await ctx.db.get(args.matchId);
     if (!match) {
       return { success: false, error: "Match not found." };
+    }
+    const session = await ctx.db.get(match.sessionId);
+    if (!session) {
+      return { success: false, error: "Associated session not found." };
+    }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
+    if (args.outgoingPlayerId === args.incomingPlayerId) {
+      return { success: false, error: "Outgoing and incoming player cannot be the same." };
     }
     if (match.status === "completed" || match.status === "cancelled") {
       return { success: false, error: "Cannot substitute in a completed or cancelled match." };
@@ -1184,6 +1221,12 @@ export const cancelMatch = mutation({
     if (!match) {
       return { success: false, error: "Match not found." };
     }
+    const session = await ctx.db.get(match.sessionId);
+    if (!session) {
+      return { success: false, error: "Associated session not found." };
+    }
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
     if (match.status === "completed") {
       return { success: false, error: "Cannot cancel a completed match." };
     }
