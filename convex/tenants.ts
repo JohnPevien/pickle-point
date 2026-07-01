@@ -12,6 +12,47 @@ type WorkspaceInput = {
   secondaryColor?: string;
 };
 
+/**
+ * Safe public projection of a tenant. This is the only shape unauthenticated
+ * callers (`getById`) and the slug-based public home (`getPublicBySlug`) may
+ * observe. It omits private config — `workosOrganizationId`, `status`, and
+ * the workspace contact email — so the public surface never exposes contact
+ * details, WorkOS identifiers, or other private fields.
+ */
+type PublicTenantProjection = {
+  _id: Id<"tenants">;
+  slug: string;
+  name: string;
+  timezone: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+};
+
+/**
+ * Project a tenant row into its public shape. Returns `null` when the row
+ * is not publicly resolvable: a disabled tenant (`status !== "active"`) or a
+ * legacy row missing the Phase 1.4 `slug`/`timezone` fields. The contact
+ * email and WorkOS identifiers are never part of the public projection.
+ */
+function toPublicTenant(tenant: Doc<"tenants">): PublicTenantProjection | null {
+  if (tenant.status !== "active") {
+    return null;
+  }
+  if (!tenant.slug || !tenant.timezone) {
+    return null;
+  }
+  return {
+    _id: tenant._id,
+    slug: tenant.slug,
+    name: tenant.name,
+    timezone: tenant.timezone,
+    logoUrl: tenant.logoUrl,
+    primaryColor: tenant.primaryColor,
+    secondaryColor: tenant.secondaryColor,
+  };
+}
+
 const workspaceFieldsValidator = {
   name: v.string(),
   contactEmail: v.string(),
@@ -105,22 +146,40 @@ async function getUserByTokenIdentifier(ctx: QueryCtx | MutationCtx, tokenIdenti
 }
 
 /**
- * Resolves a Game Master's workspace (tenant) by its ID.
- * Returns null if the provided ID is not a valid Convex ID.
+ * Public workspace projection by tenant id. Powers the public `[tenant]`
+ * layout, registration page, and public tournament/open-play pages, so it
+ * must remain callable without authentication (`public_read`).
+ *
+ * Returns only the safe public projection — never `workosOrganizationId`,
+ * `status`, or `contactEmail`. Disabled tenants and un-bootstrapped rows
+ * (missing `slug`/`timezone`) resolve to `null`, matching `getPublicBySlug`.
  */
 export const getById = query({
   args: { tenantId: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<PublicTenantProjection | null> => {
     const id = ctx.db.normalizeId("tenants", args.tenantId);
     if (!id) {
       return null;
     }
-    return await ctx.db.get(id);
+    const tenant = await ctx.db.get(id);
+    if (!tenant) {
+      return null;
+    }
+    return toPublicTenant(tenant);
   },
 });
 
 /**
- * Gets the authenticated user's workspace and owner record.
+ * Owner-only workspace lookup for the authenticated caller. Powers the
+ * workspace-settings page, which edits owner-only fields (contact email,
+ * branding), so it is gated on `requireOwner`: only an active owner gets the
+ * full `{ user, tenant }` docs. Game masters, players, suspended owners,
+ * and cross-tenant callers resolve to `null`, and the calling page renders
+ * "not found".
+ *
+ * Only `AppError` (the authorization vocabulary) is converted to `null`;
+ * any other failure (e.g. a backend error) propagates so it is not silently
+ * masked as a missing workspace.
  */
 export const getCurrentWorkspace = query({
   args: {},
@@ -133,6 +192,18 @@ export const getCurrentWorkspace = query({
     const user = await getUserByTokenIdentifier(ctx, identity.tokenIdentifier);
     if (!user) {
       return null;
+    }
+
+    try {
+      await requireOwner(ctx, user.tenantId);
+    } catch (error) {
+      // Authorization failures (UNAUTHENTICATED / FORBIDDEN /
+      // MEMBERSHIP_SUSPENDED / RESOURCE_NOT_FOUND) map to "no workspace".
+      // Unexpected errors must surface rather than be hidden as null.
+      if (error instanceof AppError) {
+        return null;
+      }
+      throw error;
     }
 
     const tenant = await ctx.db.get(user.tenantId);
@@ -237,23 +308,14 @@ export const seed = internalMutation({
 // -------------------------------------------------------------------------
 
 /**
- * Safe public projection of a tenant. Used by the public workspace
+ * Safe public projection of a tenant by slug. Used by the public workspace
  * home (`/{workspaceSlug}`) before login. Internal fields such as
- * `workosOrganizationId`, `status`, and any future admin-only
- * configuration are intentionally omitted.
+ * `workosOrganizationId`, `status`, and any future admin-only configuration
+ * are intentionally omitted. Shares the projection with `getById`.
  */
 export const getPublicBySlug = query({
   args: { slug: v.string() },
-  handler: async (ctx, args): Promise<{
-    _id: Id<"tenants">;
-    slug: string;
-    name: string;
-    timezone: string;
-    contactEmail: string;
-    logoUrl?: string;
-    primaryColor?: string;
-    secondaryColor?: string;
-  } | null> => {
+  handler: async (ctx, args): Promise<PublicTenantProjection | null> => {
     const tenant = await ctx.db
       .query("tenants")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
@@ -261,22 +323,10 @@ export const getPublicBySlug = query({
     if (!tenant || tenant.status !== "active") {
       return null;
     }
-    // A row is only publicly resolvable when it has been bootstrapped
-    // with a slug + timezone. Legacy rows without those fields are
-    // hidden from the public projection until backfilled.
-    if (!tenant.slug || !tenant.timezone) {
-      return null;
-    }
-    return {
-      _id: tenant._id,
-      slug: tenant.slug,
-      name: tenant.name,
-      timezone: tenant.timezone,
-      contactEmail: tenant.contactEmail,
-      logoUrl: tenant.logoUrl,
-      primaryColor: tenant.primaryColor,
-      secondaryColor: tenant.secondaryColor,
-    };
+    // `toPublicTenant` returns null for rows missing the Phase 1.4 slug +
+    // timezone fields, hiding legacy rows from the public projection
+    // until backfilled.
+    return toPublicTenant(tenant);
   },
 });
 

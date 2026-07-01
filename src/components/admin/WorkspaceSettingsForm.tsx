@@ -5,14 +5,24 @@ import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
-import type { Doc } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 type WorkspaceSettingsFormProps = {
-  tenant: Doc<"tenants">;
+  // The form edits only the public workspace fields. Both the owner path
+  // (getCurrentWorkspace.tenant, full Doc<"tenants">) and the dev-bypass
+  // path (getById safe projection) satisfy this shape.
+  tenant: {
+    _id: Id<"tenants">;
+    name: string;
+    contactEmail: string;
+    logoUrl?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+  };
 };
 
 export function WorkspaceSettingsForm({ tenant }: WorkspaceSettingsFormProps) {

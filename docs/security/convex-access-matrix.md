@@ -17,6 +17,15 @@ loose `tenantId !== args.tenantId` mismatch check at best. Several functions
 perform **no auth check at all** and return private fields (email, phone,
 notes, WorkOS identity) to any caller. This matrix is the Phase 3 work list.
 
+**Progress:** Task 3.1 has hardened the tenant and venue surfaces
+(`tenants.getById` safe projection with active-tenant gate, `tenants.getCurrentWorkspace`
+owner-only gate, `tenants.updateWorkspace` owner gate, and all four `venues.*` functions
+with resource-derived tenant authority). The public tenant projection
+(`getById`, `getPublicBySlug`) exposes branding only — no `contactEmail`,
+`workosOrganizationId`, or `status`. Rows marked ✅ 3.1 below are hardened;
+the remaining tables (players, stats, openPlaySessions, tournaments) are
+still at the baseline until Tasks 3.2–3.5 land.
+
 Notation:
 
 - **Args** — validator argument shape (abbreviated).
@@ -32,11 +41,11 @@ Notation:
 
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
-| `tenants.getById` | query | `public_read` (intended) / **unauthenticated today** | `tenantId: v.string()` | `tenantId` arg → `ctx.db.normalizeId` then `ctx.db.get` | `requireTenantMembership` for private; public projection needs a new safe variant | Returns full tenant doc incl. `contactEmail` to any caller, no auth | 3.1 |
-| `tenants.getCurrentWorkspace` | query | `owner`/`player` (intended) / **token-gated today, no membership check** | `{}` | `identity.tokenIdentifier` → user → `user.tenantId` | `requireTenantMembership(ctx, tenantId)` | Returns `{ user, tenant }` incl. `user.email`, `tenant.contactEmail` | 3.1 |
-| `tenants.updateWorkspace` | mutation | `owner` (intended) / **token-gated today, no role check** | `tenantId: v.id("tenants")`, workspace fields | `args.tenantId` compared to `currentUser.user.tenantId` | `requireOwner(ctx, args.tenantId)` | Accepts client `tenantId`; only user-tenant match (not owner role) | 3.1 |
+| `tenants.getById` | query | `public_read` (hardened) | `tenantId: v.string()` | `tenantId` arg → `ctx.db.normalizeId` then `ctx.db.get`; returns safe projection only; disabled/non-active tenants resolve to `null` | n/a — public projection (`toPublicTenant`) | none (safe projection): `_id`, `slug`, `name`, `timezone`, optional `logoUrl`/`primaryColor`/`secondaryColor`. Omits `workosOrganizationId`, `status`, and `contactEmail` | ✅ 3.1 |
+| `tenants.getCurrentWorkspace` | query | `owner` (hardened) | `{}` | `identity.tokenIdentifier` → user → `user.tenantId` | `requireOwner(ctx, user.tenantId)` (returns `null` only on `AppError`; unexpected errors propagate) | Returns full `{ user, tenant }` only to an active owner; powers the owner-only workspace-settings page | ✅ 3.1 |
+| `tenants.updateWorkspace` | mutation | `owner` (hardened) | `tenantId: v.id("tenants")`, workspace fields | `args.tenantId` | `requireOwner(ctx, args.tenantId)` (validates identity + active membership + trusted WorkOS claims) | none — returns `{ success }` only | ✅ 3.1 |
 | `tenants.seed` | internalMutation | `internal` | `name`, colors, `contactEmail` | n/a (dev seed) | internal only | n/a | — (internal, stays internal) |
-| `tenants.getPublicBySlug` | query | `public_read` | `slug: v.string()` | `args.slug` → `by_slug` (returns `null` for non-`active`) | n/a (public projection; no private fields) | Safe projection: slug, name, timezone, contactEmail, optional logo/colors. Omits `workosOrganizationId`, `status` | — (safe by construction) |
+| `tenants.getPublicBySlug` | query | `public_read` | `slug: v.string()` | `args.slug` → `by_slug` (returns `null` for non-`active`) | n/a (public projection via shared `toPublicTenant`) | none (safe projection): same fields as `getById` — `_id`, `slug`, `name`, `timezone`, optional `logoUrl`/`primaryColor`/`secondaryColor`. Omits `workosOrganizationId`, `status`, and `contactEmail` | — (safe by construction) |
 | `tenants.bootstrapFixedTenant` | internalMutation | `internal` | `slug`, `name`, `contactEmail`, `timezone`, `workosOrganizationId`, optional colors/logo | Idempotent by (slug, workosOrganizationId); rejects mismatched re-point with `TENANT_MISMATCH` | n/a (operator invoked; not a user auth surface) | Creates/updates tenant; writes `auditLogs` row tagged `tenant.bootstrap` | — |
 
 ## users.ts
@@ -51,10 +60,10 @@ Notation:
 
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
-| `venues.listByTenant` | query | `game_master` (intended) / **unauthenticated today** | `tenantId: v.id("tenants")`, `limit?` | `args.tenantId` (client-supplied) | `requireRole(ctx, args.tenantId, ["owner","game_master"])` | Returns venue docs (address) to any caller; no auth | 3.1 |
-| `venues.createVenue` | mutation | `game_master` (intended) / **unauthenticated today** | `tenantId`, `name`, `courtCount`, `address?` | `args.tenantId` existence check only | `requireRole(..., ["owner","game_master"])` | No auth; creates venue from client `tenantId` | 3.1 |
-| `venues.updateVenue` | mutation | `game_master` (intended) / **mismatch check only today** | `tenantId`, `venueId`, `name?`, `courtCount?`, `address?` | `venueId` → `venue.tenantId`; compared to `args.tenantId` | `requireRole(ctx, venue.tenantId, ["owner","game_master"])` | Client `tenantId` trusted; no role check | 3.1 |
-| `venues.deleteVenue` | mutation | `game_master` (intended) / **mismatch check only today** | `tenantId`, `venueId` | `venueId` → `venue.tenantId`; compared to `args.tenantId` | `requireRole(ctx, venue.tenantId, ["owner","game_master"])` | Client `tenantId` trusted; no role check | 3.1 |
+| `venues.listByTenant` | query | `game_master` (hardened) | `tenantId: v.id("tenants")`, `limit?` | `args.tenantId` | `requireRole(ctx, args.tenantId, ["owner","game_master"])` — throws `AppError` on auth failure | none — venue docs returned only to owner/game_master | ✅ 3.1 |
+| `venues.createVenue` | mutation | `game_master` (hardened) | `tenantId`, `name`, `courtCount`, `address?` | `args.tenantId` (checked before any write) | `requireRole(ctx, args.tenantId, ["owner","game_master"])` | none — returns `{ success, venueId? }` only | ✅ 3.1 |
+| `venues.updateVenue` | mutation | `game_master` (hardened) | `tenantId`, `venueId`, `name?`, `courtCount?`, `address?` | derived: `venueId` → `venue.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireRole(ctx, venue.tenantId, ["owner","game_master"])` | none — returns `{ success }` only | ✅ 3.1 |
+| `venues.deleteVenue` | mutation | `game_master` (hardened) | `tenantId`, `venueId` | derived: `venueId` → `venue.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireRole(ctx, venue.tenantId, ["owner","game_master"])` | none — returns `{ success }` only | ✅ 3.1 |
 
 ## players.ts
 

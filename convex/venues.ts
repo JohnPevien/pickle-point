@@ -1,9 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { requireRole, AppError } from "./lib/authz";
 
 const DEFAULT_VENUE_LIST_LIMIT = 100;
 const MAX_VENUE_LIST_LIMIT = 200;
+
+/** Roles permitted to manage venues. Task 3.1: owner + game_master. */
+const VENUE_ROLES = ["owner", "game_master"] as const;
 
 function requiredName(value: string) {
   const trimmed = value.trim();
@@ -32,7 +36,11 @@ function clampInt(value: number, min: number, max: number) {
 }
 
 /**
- * Lists venues for a tenant workspace.
+ * Task 3.1: lists venues for a tenant workspace. Caller must be an owner or
+ * game_master in `args.tenantId`. Authority is checked server-side via
+ * `requireRole`, which validates the identity, the local active membership,
+ * and the trusted WorkOS claims for admin roles. Any failure throws an
+ * `AppError` (UNAUTHENTICATED / FORBIDDEN / MEMBERSHIP_SUSPENDED).
  */
 export const listByTenant = query({
   args: {
@@ -40,10 +48,7 @@ export const listByTenant = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      return [];
-    }
+    await requireRole(ctx, args.tenantId, VENUE_ROLES);
 
     const limit = clampInt(args.limit ?? DEFAULT_VENUE_LIST_LIMIT, 1, MAX_VENUE_LIST_LIMIT);
     return await ctx.db
@@ -55,7 +60,11 @@ export const listByTenant = query({
 });
 
 /**
- * Creates a venue with a required name and positive court count for a tenant workspace.
+ * Task 3.1: creates a venue with a required name and positive court count.
+ * Caller must be an owner or game_master in `args.tenantId`. Authority is
+ * checked before any write. Auth failures return `{ success:false, error }`
+ * (consistent with the other venue mutations) so the admin UI can surface a
+ * toast; business-validation failures keep the same shape.
  */
 export const createVenue = mutation({
   args: {
@@ -65,9 +74,12 @@ export const createVenue = mutation({
     address: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const tenant = await ctx.db.get(args.tenantId);
-    if (!tenant) {
-      return { success: false, error: "Tenant not found." };
+    try {
+      await requireRole(ctx, args.tenantId, VENUE_ROLES);
+    } catch (error) {
+      const message =
+        error instanceof AppError ? error.message : "Venue access denied.";
+      return { success: false, error: message };
     }
 
     const name = requiredName(args.name);
@@ -93,7 +105,12 @@ export const createVenue = mutation({
 });
 
 /**
- * Updates editable venue fields after confirming the venue belongs to the tenant workspace.
+ * Task 3.1: updates editable venue fields. Authority is derived from the
+ * loaded venue row (`venue.tenantId`), never from the client-supplied
+ * `args.tenantId` — so a caller cannot act on a venue in a tenant they have
+ * no membership in by passing a foreign tenant id. After authorization, the
+ * client `tenantId` is still compared against the derived tenant to surface
+ * a clear "workspace mismatch" error for stale clients.
  */
 export const updateVenue = mutation({
   args: {
@@ -108,6 +125,18 @@ export const updateVenue = mutation({
     if (!venue) {
       return { success: false, error: "Venue not found." };
     }
+
+    try {
+      // Authority is derived from the resource, not the client tenantId.
+      await requireRole(ctx, venue.tenantId, VENUE_ROLES);
+    } catch (error) {
+      const message =
+        error instanceof AppError ? error.message : "Venue access denied.";
+      return { success: false, error: message };
+    }
+
+    // Surface a stale-client mismatch as a clear business error after the
+    // authorization check has passed.
     if (venue.tenantId !== args.tenantId) {
       return { success: false, error: "Venue workspace mismatch." };
     }
@@ -137,7 +166,10 @@ export const updateVenue = mutation({
 });
 
 /**
- * Deletes a venue when it belongs to the tenant and is not referenced by an open play session.
+ * Task 3.1: deletes a venue. Authority is derived from the venue row's
+ * tenant, then the client `tenantId` is checked for a stale-client
+ * mismatch. Deletion is refused when an open play session still references
+ * the venue.
  */
 export const deleteVenue = mutation({
   args: {
@@ -149,6 +181,15 @@ export const deleteVenue = mutation({
     if (!venue) {
       return { success: false, error: "Venue not found." };
     }
+
+    try {
+      await requireRole(ctx, venue.tenantId, VENUE_ROLES);
+    } catch (error) {
+      const message =
+        error instanceof AppError ? error.message : "Venue access denied.";
+      return { success: false, error: message };
+    }
+
     if (venue.tenantId !== args.tenantId) {
       return { success: false, error: "Venue workspace mismatch." };
     }

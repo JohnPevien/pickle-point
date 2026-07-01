@@ -3,36 +3,32 @@ import { notFound } from "next/navigation";
 import { api } from "../../../../../convex/_generated/api";
 import { WorkspaceSettingsForm } from "@/components/admin/WorkspaceSettingsForm";
 import { requireWorkosAuth } from "@/lib/auth/server";
-import { canBypassWorkosAuth, hasWorkosAuthConfig } from "@/lib/auth/workos";
+import { hasWorkosAuthConfig } from "@/lib/auth/workos";
 
 export const dynamic = "force-dynamic";
 
 async function getAuthorizedWorkspace(tenant: string) {
-  if (hasWorkosAuthConfig(process.env)) {
-    const auth = await requireWorkosAuth();
-    const currentWorkspace = await fetchQuery(
-      api.tenants.getCurrentWorkspace,
-      {},
-      { token: auth.accessToken }
-    );
-
-    if (!currentWorkspace || currentWorkspace.tenant._id !== tenant) {
-      notFound();
-    }
-
-    return currentWorkspace.tenant;
-  }
-
-  if (!canBypassWorkosAuth(process.env)) {
+  // The workspace-settings page edits owner-only fields (contact email,
+  // branding), so it always requires an owner session via
+  // getCurrentWorkspace. There is intentionally no public/dev bypass:
+  // without an owner identity the page renders "not found" rather than
+  // exposing owner data through a public projection.
+  if (!hasWorkosAuthConfig(process.env)) {
     notFound();
   }
 
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
-  if (!tenantData) {
+  const auth = await requireWorkosAuth();
+  const currentWorkspace = await fetchQuery(
+    api.tenants.getCurrentWorkspace,
+    {},
+    { token: auth.accessToken }
+  );
+
+  if (!currentWorkspace || currentWorkspace.tenant._id !== tenant) {
     notFound();
   }
 
-  return tenantData;
+  return currentWorkspace.tenant;
 }
 
 export default async function AdminWorkspacePage({

@@ -115,7 +115,7 @@ describe("Tenants", () => {
       expect(currentWorkspace).toBeNull();
     });
 
-    test("returns the authenticated user's workspace", async () => {
+    test("returns the owner's workspace with full docs (owner-only)", async () => {
       const t = convexTest(schema, modules);
       const token = "https://example.com|owner-current-001";
       const authed = asIdentity(t, token);
@@ -125,10 +125,185 @@ describe("Tenants", () => {
 
       expect(currentWorkspace?.tenant._id).toBe(tenantId);
       expect(currentWorkspace?.tenant.name).toBe("Test Pickleball Club");
+      // contactEmail is private and only surfaces through this owner-gated
+      // query (never through the public getById projection).
       expect(currentWorkspace?.tenant.contactEmail).toBe("GM@TestClub.com");
       expect(currentWorkspace?.user.tenantId).toBe(tenantId);
       expect(currentWorkspace?.user.fullName).toBe("Game Master");
       expect(currentWorkspace?.user.emailNormalized).toBe("gm@testclub.com");
+    });
+
+    test("returns null for a game_master (owner-only gate, Phase 3.1 review)", async () => {
+      // The workspace-settings page edits owner-only fields (contact email,
+      // branding). A game_master must not receive the full docs even though
+      // they have an active membership.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|gm-workspace";
+      const authed = asIdentity(t, token, { role: "game_master" });
+      await bootstrapWorkspaceFor(t, { tokenIdentifier: token, role: "game_master" });
+
+      const currentWorkspace = await authed.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace).toBeNull();
+    });
+
+    test("returns null for a player (owner-only gate)", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|player-workspace";
+      const authed = asIdentity(t, token, { role: "player" });
+      await bootstrapWorkspaceFor(t, { tokenIdentifier: token, role: "player" });
+
+      const currentWorkspace = await authed.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace).toBeNull();
+    });
+
+    test("returns null when the user has no active membership (Phase 3.1)", async () => {
+      // Regression: previously any token-gated user with a user row got
+      // the full tenant back, even with no tenantMemberships row.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|no-membership-001";
+      const authed = asIdentity(t, token);
+      const tenantId = await bootstrapWorkspaceFor(t, { tokenIdentifier: token });
+      // Remove the membership row the helper created, leaving the user
+      // mapped to the tenant but without an active membership.
+      await t.run(async (ctx) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", token))
+          .first();
+        if (!user) return;
+        const membership = await ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", user._id)
+          )
+          .first();
+        if (membership) await ctx.db.delete(membership._id);
+      });
+
+      const currentWorkspace = await authed.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace).toBeNull();
+    });
+
+    test("returns null when the owner's membership is suspended (Phase 3.1)", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|suspended-001";
+      const authed = asIdentity(t, token);
+      const tenantId = await bootstrapWorkspaceFor(t, { tokenIdentifier: token });
+
+      await t.run(async (ctx) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", token))
+          .first();
+        const membership = await ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", (user as { _id: Id<"users"> })._id)
+          )
+          .first();
+        if (membership) {
+          await ctx.db.patch(membership._id, { status: "suspended" });
+        }
+      });
+
+      const currentWorkspace = await authed.query(api.tenants.getCurrentWorkspace, {});
+
+      expect(currentWorkspace).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Task 3.1: tenant access hardening
+  // -------------------------------------------------------------------------
+
+  describe("getById authorization (Phase 3.1)", () => {
+    test("returns a safe public projection without private fields", async () => {
+      const t = convexTest(schema, modules);
+      const result = await t.mutation(internal.tenants.bootstrapFixedTenant, {
+        slug: "safe-projection",
+        name: "Safe Projection Club",
+        contactEmail: "hello@safeproject.example",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_safe_projection",
+        primaryColor: "#112233",
+        secondaryColor: "#445566",
+        logoUrl: "https://example.com/logo.png",
+      });
+
+      const tenant = await t.query(api.tenants.getById, {
+        tenantId: result.tenantId,
+      });
+
+      expect(tenant).toMatchObject({
+        _id: result.tenantId,
+        slug: "safe-projection",
+        name: "Safe Projection Club",
+        timezone: "Asia/Manila",
+        primaryColor: "#112233",
+        secondaryColor: "#445566",
+        logoUrl: "https://example.com/logo.png",
+      });
+      // Private config and contact details must never leak through the
+      // public projection.
+      expect((tenant as any).workosOrganizationId).toBeUndefined();
+      expect((tenant as any).status).toBeUndefined();
+      expect((tenant as any).contactEmail).toBeUndefined();
+    });
+
+    test("returns null for a disabled tenant (active-only, like getPublicBySlug)", async () => {
+      const t = convexTest(schema, modules);
+      const result = await t.mutation(internal.tenants.bootstrapFixedTenant, {
+        slug: "disabled-by-id",
+        name: "Disabled By Id",
+        contactEmail: "hello@disabled.example",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_disabled_by_id",
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(result.tenantId, { status: "disabled" });
+      });
+
+      const tenant = await t.query(api.tenants.getById, {
+        tenantId: result.tenantId,
+      });
+
+      expect(tenant).toBeNull();
+    });
+
+    test("returns null for an unknown tenant id", async () => {
+      const t = convexTest(schema, modules);
+
+      const tenant = await t.query(api.tenants.getById, {
+        tenantId: "not-a-valid-convex-id",
+      });
+
+      expect(tenant).toBeNull();
+    });
+
+    test("is callable without authentication (public_read)", async () => {
+      // getById powers the public [tenant] layout, registration page, and
+      // public tournament/open-play pages. It must remain usable by
+      // unauthenticated callers, returning only the safe projection.
+      const t = convexTest(schema, modules);
+      const result = await t.mutation(internal.tenants.bootstrapFixedTenant, {
+        slug: "public-read",
+        name: "Public Read Club",
+        contactEmail: "hello@publicread.example",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_public_read",
+      });
+
+      // No withIdentity — fully unauthenticated.
+      const tenant = await t.query(api.tenants.getById, {
+        tenantId: result.tenantId,
+      });
+
+      expect(tenant?.name).toBe("Public Read Club");
+      expect((tenant as any).workosOrganizationId).toBeUndefined();
+      expect((tenant as any).contactEmail).toBeUndefined();
     });
   });
 
@@ -276,7 +451,7 @@ describe("Tenants", () => {
   // -------------------------------------------------------------------------
 
   describe("getPublicBySlug", () => {
-    test("returns branding fields and never leaks private config", async () => {
+    test("returns branding fields and never leaks private config or contact", async () => {
       const t = convexTest(schema, modules);
       await t.mutation(internal.tenants.bootstrapFixedTenant, {
         slug: "pickle-point",
@@ -290,11 +465,11 @@ describe("Tenants", () => {
         slug: "pickle-point",
         name: "Pickle Point",
         timezone: "Asia/Manila",
-        contactEmail: "hello@picklepoint.example",
       });
-      // Public projection must NOT leak internal workosOrganizationId or status.
+      // Public projection must NOT leak internal config or contact details.
       expect((view as any).workosOrganizationId).toBeUndefined();
       expect((view as any).status).toBeUndefined();
+      expect((view as any).contactEmail).toBeUndefined();
     });
 
     test("returns null for unknown slug", async () => {
