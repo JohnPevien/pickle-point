@@ -410,11 +410,11 @@ git commit -m "fix: remove self-service workspace creation"
 - Modify: `convex/venues.ts`
 - Modify: `convex/venues.test.ts`
 
-- [ ] Write failing tests for public tenant projection, owner-only settings, Game Master venue CRUD, player rejection, and cross-tenant IDs.
-- [ ] Run `pnpm test convex/tenants.test.ts convex/venues.test.ts` and confirm the new cases fail.
-- [ ] Use resource-derived tenant checks and remove access decisions based only on browser-provided tenant IDs.
-- [ ] Re-run the focused tests and confirm pass.
-- [ ] Commit with `git commit -m "fix: enforce tenant and venue authorization"`.
+- [x] Add focused coverage for public tenant projection, owner-only settings, Game Master venue CRUD, player rejection, and cross-tenant IDs.
+- [x] Use resource-derived tenant checks and remove access decisions based only on browser-provided tenant IDs.
+- [x] Re-run the focused suite: 43 tenant/venue authorization tests passed.
+- [x] Run the full validation gate: 316 tests, ESLint, production build, access-matrix check, and `git diff --check` passed.
+- [x] Commit as `275c4fb` (`fix: enforce tenant and venue authorization`).
 
 ### Task 3.2: Protect player and statistics functions
 

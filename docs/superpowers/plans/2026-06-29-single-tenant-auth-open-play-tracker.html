@@ -232,9 +232,18 @@
       ]}
     ];
 
-    const defaults = Object.fromEntries(phases.flatMap(phase => phase.tasks.map(([id]) => [id, {
-      status: "not_started", owner: "", branch: "", evidence: ""
-    }])));
+    const completedTasks = {
+      "3.1": {
+        status: "done",
+        owner: "JohnPevien",
+        branch: "main",
+        evidence: "275c4fb; 43 focused tests and 316 full-suite tests passed; lint, build, and access matrix passed"
+      }
+    };
+
+    const defaults = Object.fromEntries(phases.flatMap(phase => phase.tasks.map(([id]) => [id,
+      completedTasks[id] ?? { status: "not_started", owner: "", branch: "", evidence: "" }
+    ])));
 
     function normalizeState(candidate = {}) {
       const normalized = structuredClone(defaults);

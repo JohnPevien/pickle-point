@@ -31,6 +31,7 @@
     "pp-027-create-repo-task-log-and-retire-clickup",
     "pp-028-decide-regenerate-only-empty-courts-controls",
     "pp-029-decide-production-docs-access-model",
-    "pp-030-mvp-readiness-and-release-polish"
+    "pp-030-mvp-readiness-and-release-polish",
+    "pp-031-harden-tenant-and-venue-authorization"
   ]
 }

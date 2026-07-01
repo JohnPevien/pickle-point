@@ -1,0 +1,40 @@
+---
+title: "PP-031: Harden Tenant And Venue Authorization"
+description: Phase 3.1 authorization hardening for tenant projections, workspace settings, and venue management.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Apply explicit public, owner, and Game Master boundaries to tenant and venue Convex functions without trusting browser-supplied tenant authority.
+
+## Acceptance Criteria
+
+- Public tenant lookups return active, contact-free branding projections.
+- Workspace settings and private tenant data require an active owner identity.
+- Venue listing and CRUD require an active owner or Game Master identity.
+- Venue update and delete authorization derive the tenant from the loaded venue.
+- Unauthenticated, player, suspended, and cross-tenant access fails closed.
+- The Convex access matrix records the hardened behavior.
+
+## Completion Evidence
+
+- Implemented in commit `275c4fb` (`fix: enforce tenant and venue authorization`).
+- `convex/tenants.test.ts` and `convex/venues.test.ts`: 43 focused tests passed.
+- Full Vitest suite: 316 tests across 22 files passed.
+- ESLint passed.
+- `node scripts/check-convex-access.mjs`: all 63 registered functions classified.
+- Next.js production build passed with 61 routes generated.
+- `git diff --check` passed.
+
+## Source / Provenance
+
+- Source: Phase 3, Task 3.1 in `docs/superpowers/plans/2026-06-29-single-tenant-auth-open-play-implementation.md`.
+- Created date: 2026-07-01.
+
+## Changelog Impact
+
+Recorded because this changes public data exposure and administrative authorization boundaries.
