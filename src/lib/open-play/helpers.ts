@@ -49,8 +49,11 @@ type SessionPlayerLike = {
 type CompletedMatchLike = {
   team1Details?: NamedPlayer[];
   team2Details?: NamedPlayer[];
-  score1?: number;
-  score2?: number;
+  // `null` is accepted so the same helper serves the public projection
+  // (where scores are `number | null`); the leaderboard guards with a
+  // `typeof ... === "number"` check before using the value.
+  score1?: number | null;
+  score2?: number | null;
 };
 
 export type PlayerStanding = {

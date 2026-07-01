@@ -17,7 +17,7 @@ import {
   sortSessionPlayers,
   teamName,
 } from "@/lib/open-play/helpers";
-import type { LiveMatch, SessionPlayerRow } from "@/lib/open-play/types";
+import type { PublicSessionPlayerRow } from "@/lib/open-play/types";
 
 type LiveOpenPlayViewProps = {
   tenantName: string;
@@ -25,19 +25,22 @@ type LiveOpenPlayViewProps = {
 };
 
 export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProps) {
-  const session = useQuery(api.openPlaySessions.getById, { sessionId });
-  const sessionPlayers = useQuery(api.openPlaySessions.getSessionPlayers, { sessionId });
-  const liveMatches = useQuery(api.openPlaySessions.getLiveMatches, { sessionId });
-  const matchHistory = useQuery(api.openPlaySessions.getMatchHistory, { sessionId });
+  const session = useQuery(api.openPlaySessions.getPublicSession, { sessionId });
+  const sessionPlayersResult = useQuery(api.openPlaySessions.getPublicSessionPlayers, { sessionId });
+  const sessionPlayers = sessionPlayersResult?.entries;
+  const liveMatchesResult = useQuery(api.openPlaySessions.getPublicLiveMatches, { sessionId });
+  const liveMatches = liveMatchesResult?.entries ?? [];
+  const matchHistoryResult = useQuery(api.openPlaySessions.getPublicMatchHistory, { sessionId });
+  const matchHistory = matchHistoryResult?.entries ?? [];
 
   const sortedSessionPlayers = useMemo(
-    () => sortSessionPlayers((sessionPlayers ?? []) as SessionPlayerRow[]),
+    () => sortSessionPlayers(sessionPlayers ?? []),
     [sessionPlayers],
   );
   const { queuedPlayers, sittingOutPlayers, pausedPlayers, availableCount } = useMemo(() => {
-    const queuedPlayers: SessionPlayerRow[] = [];
-    const sittingOutPlayers: SessionPlayerRow[] = [];
-    const pausedPlayers: SessionPlayerRow[] = [];
+    const queuedPlayers: PublicSessionPlayerRow[] = [];
+    const sittingOutPlayers: PublicSessionPlayerRow[] = [];
+    const pausedPlayers: PublicSessionPlayerRow[] = [];
     let availableCount = 0;
     for (const player of sortedSessionPlayers) {
       if (player.status === "queued") queuedPlayers.push(player);
@@ -47,8 +50,8 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
     }
     return { queuedPlayers, sittingOutPlayers, pausedPlayers, availableCount };
   }, [sortedSessionPlayers]);
-  const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => match.status !== "completed");
-  const completedMatches = (matchHistory ?? []) as LiveMatch[];
+  const activeMatches = (liveMatches ?? []).filter((match) => match.status !== "completed");
+  const completedMatches = matchHistory ?? [];
   const leaderboard = buildSessionLeaderboard(completedMatches);
 
   return (
@@ -192,16 +195,12 @@ export function LiveOpenPlayView({ tenantName, sessionId }: LiveOpenPlayViewProp
               {completedMatches.slice(0, 6).map((match) => (
                 <div
                   key={match._id}
-                  className={`rounded-md border p-3 text-sm ${
-                    match.status === "cancelled" ? "opacity-60" : ""
-                  }`}
+                  className="rounded-md border p-3 text-sm"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="truncate">{teamName(match.team1Details)}</span>
                     <span className="font-semibold">
-                      {match.status === "cancelled"
-                        ? "Cancelled"
-                        : `${match.score1} - ${match.score2}`}
+                      {`${match.score1 ?? 0} - ${match.score2 ?? 0}`}
                     </span>
                   </div>
                   <div className="mt-2 truncate text-muted-foreground">{teamName(match.team2Details)}</div>
@@ -239,7 +238,7 @@ function TeamLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PlayerRow({ rank, player }: { rank?: number; player: SessionPlayerRow }) {
+function PlayerRow({ rank, player }: { rank?: number; player: PublicSessionPlayerRow }) {
   return (
     <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-sm">
       <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold">

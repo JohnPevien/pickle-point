@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
+import { requireRole, AppError } from "./lib/authz";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import {
   findPlayerByContact,
   legacyContactValue,
@@ -130,14 +132,20 @@ async function allocateQueuePositions(
 async function getSessionMatchesByStatus(
   ctx: QueryCtx | MutationCtx,
   sessionId: Id<"openPlaySessions">,
-  status: Doc<"sessionMatches">["status"]
+  status: Doc<"sessionMatches">["status"],
+  limit?: number,
+  order: "asc" | "desc" = "asc"
 ) {
-  return await ctx.db
+  const q = ctx.db
     .query("sessionMatches")
     .withIndex("by_sessionId_and_status", (q) =>
       q.eq("sessionId", sessionId).eq("status", status)
     )
-    .collect();
+    .order(order);
+  if (limit) {
+    return await q.take(limit);
+  }
+  return await q.collect();
 }
 
 /**
@@ -199,19 +207,15 @@ async function allocateFrontQueuePositions(
  */
 export const createSession = mutation({
   args: {
-    tenantId: v.id("tenants"),
-    venueId: v.optional(v.id("venues")),
-    name: v.string(),
-    date: v.number(),
-    matchingMode: v.union(
-      v.literal("auto_balanced"),
-      v.literal("skill_separated"),
-      v.literal("winners_vs_losers"),
-      v.literal("mixed_doubles"),
-      v.literal("skill_courts")
-    ),
+    tenantId: v.id("tenants"), venueId: v.optional(v.id("venues")), name: v.string(), date: v.number(),
+    matchingMode: v.union(v.literal("auto_balanced"), v.literal("skill_separated"), v.literal("winners_vs_losers"), v.literal("mixed_doubles"), v.literal("skill_courts")),
   },
   handler: async (ctx, args) => {
+    await requireRole(ctx, args.tenantId, ["owner", "game_master"]);
+    if (args.venueId) {
+      const venue = await ctx.db.get(args.venueId);
+      if (!venue || venue.tenantId !== args.tenantId) throw new AppError("FORBIDDEN", "Venue does not belong to the specified tenant.");
+    }
     const name = requiredName(args.name);
     if (!name) {
       return { success: false, error: "Session name is required." };
@@ -236,7 +240,13 @@ export const createSession = mutation({
 });
 
 /**
- * Lists all open play sessions for a given tenant.
+ * Lists open play sessions for a given tenant, newest-created first.
+ *
+ * Bounded read: instead of `.collect()` (which loads every row), we cap
+ * the scan at `MAX_SESSION_LIST_LIMIT`. Callers may request a smaller
+ * page via `limit`; the value is clamped to `[1, MAX_SESSION_LIST_LIMIT]`.
+ * The `by_tenant` index orders equal tenant keys by creation time, so the
+ * descending scan selects the newest rows before applying the limit.
  */
 export const listByTenant = query({
   args: {
@@ -244,12 +254,14 @@ export const listByTenant = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireRole(ctx, args.tenantId, ["owner", "game_master"]);
     const limit = clampInt(args.limit ?? DEFAULT_SESSION_LIST_LIMIT, 1, MAX_SESSION_LIST_LIMIT);
-    return await ctx.db
+    const list = await ctx.db
       .query("openPlaySessions")
       .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
       .order("desc")
       .take(limit);
+    return list;
   },
 });
 
@@ -259,7 +271,10 @@ export const listByTenant = query({
 export const getById = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.sessionId);
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) return null;
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+    return session;
   },
 });
 
@@ -269,19 +284,12 @@ export const getById = query({
 export const updateSessionStatus = mutation({
   args: {
     sessionId: v.id("openPlaySessions"),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("check_in"),
-      v.literal("live"),
-      v.literal("completed"),
-      v.literal("cancelled")
-    ),
+    status: v.union(v.literal("draft"), v.literal("check_in"), v.literal("live"), v.literal("completed"), v.literal("cancelled")),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
-    if (!session) {
-      return { success: false, error: "Session not found." };
-    }
+    if (!session) return { success: false, error: "Session not found." };
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
 
     await ctx.db.patch(args.sessionId, { status: args.status });
     return { success: true };
@@ -294,19 +302,12 @@ export const updateSessionStatus = mutation({
 export const updateSessionMatchingMode = mutation({
   args: {
     sessionId: v.id("openPlaySessions"),
-    matchingMode: v.union(
-      v.literal("auto_balanced"),
-      v.literal("skill_separated"),
-      v.literal("winners_vs_losers"),
-      v.literal("mixed_doubles"),
-      v.literal("skill_courts")
-    ),
+    matchingMode: v.union(v.literal("auto_balanced"), v.literal("skill_separated"), v.literal("winners_vs_losers"), v.literal("mixed_doubles"), v.literal("skill_courts")),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
-    if (!session) {
-      return { success: false, error: "Session not found." };
-    }
+    if (!session) return { success: false, error: "Session not found." };
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
 
     await ctx.db.patch(args.sessionId, { matchingMode: args.matchingMode });
     return { success: true };
@@ -528,20 +529,28 @@ export const updatePlayerStatus = mutation({
 export const getSessionPlayers = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) return { entries: [], truncated: false };
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
     const list = await ctx.db
       .query("sessionPlayers")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
-      .collect();
+      .take(501);
 
-    return await Promise.all(
-      list.map(async (sp) => {
+    const truncated = list.length > 500;
+    const entries = await Promise.all(
+      list.slice(0, 500).map(async (sp) => {
         const player = await ctx.db.get(sp.playerId);
+        if (!player || player.tenantId !== session.tenantId) {
+          return { ...sp, playerDetails: null }; // Tombstone or hidden details
+        }
         return {
           ...sp,
           playerDetails: player,
         };
       })
     );
+    return { entries, truncated };
   },
 });
 
@@ -873,24 +882,42 @@ export const recordMatchScore = mutation({
 export const getLiveMatches = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
-    const active = [
-      ...(await getSessionMatchesByStatus(ctx, args.sessionId, "pending")),
-      ...(await getSessionMatchesByStatus(ctx, args.sessionId, "in_progress")),
-    ];
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) return { entries: [], truncated: false };
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
 
-    return await Promise.all(
+    // Bounded queries
+    const pending = await getSessionMatchesByStatus(ctx, args.sessionId, "pending", 51);
+    const inProgress = await getSessionMatchesByStatus(ctx, args.sessionId, "in_progress", 51);
+
+    let active = [...pending, ...inProgress];
+    const truncated = active.length > 50;
+    active = active.slice(0, 50);
+
+    const entries = await Promise.all(
       active.map(async (m) => {
-        const [team1Players, team2Players] = await Promise.all([
-          Promise.all(m.team1.map((id) => ctx.db.get(id))),
-          Promise.all(m.team2.map((id) => ctx.db.get(id))),
-        ]);
+        const team1Details = await Promise.all(
+          m.team1.map(async (id: Id<"players">) => {
+            const p = await ctx.db.get(id);
+            if (!p || p.tenantId !== session.tenantId) return null;
+            return p;
+          })
+        );
+        const team2Details = await Promise.all(
+          m.team2.map(async (id: Id<"players">) => {
+            const p = await ctx.db.get(id);
+            if (!p || p.tenantId !== session.tenantId) return null;
+            return p;
+          })
+        );
         return {
           ...m,
-          team1Details: team1Players,
-          team2Details: team2Players,
+          team1Details,
+          team2Details,
         };
       })
     );
+    return { entries, truncated };
   },
 });
 
@@ -902,27 +929,43 @@ export const getLiveMatches = query({
 export const getMatchHistory = query({
   args: { sessionId: v.id("openPlaySessions") },
   handler: async (ctx, args) => {
-    const [completed, cancelled] = await Promise.all([
-      getSessionMatchesByStatus(ctx, args.sessionId, "completed"),
-      getSessionMatchesByStatus(ctx, args.sessionId, "cancelled"),
-    ]);
-    const historical = [...completed, ...cancelled].sort(
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) return { entries: [], truncated: false };
+    await requireRole(ctx, session.tenantId, ["owner", "game_master"]);
+
+    const completed = await getSessionMatchesByStatus(ctx, args.sessionId, "completed", 51, "desc");
+    const cancelled = await getSessionMatchesByStatus(ctx, args.sessionId, "cancelled", 51, "desc");
+
+    let historical = [...completed, ...cancelled].sort(
       (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0)
     );
+    const truncated = historical.length > 50;
+    historical = historical.slice(0, 50);
 
-    return await Promise.all(
+    const entries = await Promise.all(
       historical.map(async (m) => {
-        const [team1Players, team2Players] = await Promise.all([
-          Promise.all(m.team1.map((id) => ctx.db.get(id))),
-          Promise.all(m.team2.map((id) => ctx.db.get(id))),
-        ]);
+        const team1Details = await Promise.all(
+          m.team1.map(async (id: Id<"players">) => {
+            const p = await ctx.db.get(id);
+            if (!p || p.tenantId !== session.tenantId) return null;
+            return p;
+          })
+        );
+        const team2Details = await Promise.all(
+          m.team2.map(async (id: Id<"players">) => {
+            const p = await ctx.db.get(id);
+            if (!p || p.tenantId !== session.tenantId) return null;
+            return p;
+          })
+        );
         return {
           ...m,
-          team1Details: team1Players,
-          team2Details: team2Players,
+          team1Details,
+          team2Details,
         };
       })
     );
+    return { entries, truncated };
   },
 });
 
@@ -1194,5 +1237,139 @@ export const cancelMatch = mutation({
     await ctx.db.patch(args.matchId, { status: "cancelled", completedAt: Date.now() });
 
     return { success: true };
+  },
+});
+
+
+/**
+ * ---------------------------------------------------------------------------
+ * PUBLIC PROJECTIONS (Safe for unauthenticated / player reads)
+ * ---------------------------------------------------------------------------
+ */
+export const getPublicSession = query({
+  args: { sessionId: v.id("openPlaySessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.status === "draft") return null;
+
+    const tenant = await ctx.db.get(session.tenantId);
+    if (!tenant || tenant.status !== "active") return null;
+
+    return {
+      _id: session._id, name: session.name, date: session.date, status: session.status, matchingMode: session.matchingMode,
+    };
+  },
+});
+export const getPublicSessionPlayers = query({
+  args: { sessionId: v.id("openPlaySessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.status === "draft") return { entries: [], truncated: false };
+
+    const tenant = await ctx.db.get(session.tenantId);
+    if (!tenant || tenant.status !== "active") return { entries: [], truncated: false };
+
+    const list = await ctx.db.query("sessionPlayers").withIndex("by_session", (q) => q.eq("sessionId", args.sessionId)).take(101);
+    const truncated = list.length > 100;
+
+    const result = [];
+    for (const sp of list.slice(0, 100)) {
+      const player = await ctx.db.get(sp.playerId);
+      if (player && player.tenantId === session.tenantId) {
+        // Project only the rotation/queue fields the public view needs to
+        // sort the queue, render queue labels, and show rotation stats —
+        // never email/phone/notes/username (private player fields).
+        result.push({
+          _id: sp._id,
+          status: sp.status,
+          queuePosition: sp.queuePosition,
+          checkedInAt: sp.checkedInAt,
+          matchesPlayed: sp.matchesPlayed,
+          sitOutCount: sp.sitOutCount,
+          consecutiveSitOuts: sp.consecutiveSitOuts,
+          lastPlayedAt: sp.lastPlayedAt,
+          lastSatOutAt: sp.lastSatOutAt,
+          playerDetails: {
+            firstName: player.firstName,
+            lastName: player.lastName,
+            manualSkillLevel: player.manualSkillLevel,
+            profileImageUrl: player.avatarUrl,
+            rating: player.duprRating,
+          },
+        });
+      }
+    }
+    return { entries: result, truncated };
+  },
+});
+
+export const getPublicLiveMatches = query({
+  args: { sessionId: v.id("openPlaySessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.status === "draft") return { entries: [], truncated: false };
+
+    const tenant = await ctx.db.get(session.tenantId);
+    if (!tenant || tenant.status !== "active") return { entries: [], truncated: false };
+
+    const pending = await getSessionMatchesByStatus(ctx, args.sessionId, "pending", 51);
+    const inProgress = await getSessionMatchesByStatus(ctx, args.sessionId, "in_progress", 51);
+
+    let active = [...pending, ...inProgress];
+    const truncated = active.length > 50;
+    active = active.slice(0, 50);
+
+    const entries = await Promise.all(
+      active.map(async (m) => {
+        const team1Details = await Promise.all(m.team1.map(async (id: Id<"players">) => {
+          const p = await ctx.db.get(id);
+          if (!p || p.tenantId !== session.tenantId) return null;
+          return { firstName: p.firstName, lastName: p.lastName, profileImageUrl: p.avatarUrl, manualSkillLevel: p.manualSkillLevel };
+        }));
+        const team2Details = await Promise.all(m.team2.map(async (id: Id<"players">) => {
+          const p = await ctx.db.get(id);
+          if (!p || p.tenantId !== session.tenantId) return null;
+          return { firstName: p.firstName, lastName: p.lastName, profileImageUrl: p.avatarUrl, manualSkillLevel: p.manualSkillLevel };
+        }));
+        return { _id: m._id, courtName: m.courtName, status: m.status, team1Details: team1Details.filter(p => p !== null), team2Details: team2Details.filter(p => p !== null), };
+      })
+    );
+    return { entries, truncated };
+  },
+});
+export const getPublicMatchHistory = query({
+  args: { sessionId: v.id("openPlaySessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.status === "draft") return { entries: [], truncated: false };
+
+    const tenant = await ctx.db.get(session.tenantId);
+    if (!tenant || tenant.status !== "active") return { entries: [], truncated: false };
+
+    // Public history exposes COMPLETED matches only. Cancelled matches
+    // are an administrative audit trail (see `cancelMatch` and the admin
+    // `getMatchHistory`) and must not be surfaced to unauthenticated
+    // viewers. Sorting is already newest-first from the index scan.
+    const completed = await getSessionMatchesByStatus(ctx, args.sessionId, "completed", 51, "desc");
+
+    const truncated = completed.length > 50;
+    const historical = completed.slice(0, 50);
+
+    const entries = await Promise.all(
+      historical.map(async (m) => {
+        const team1Details = await Promise.all(m.team1.map(async (id: Id<"players">) => {
+          const p = await ctx.db.get(id);
+          if (!p || p.tenantId !== session.tenantId) return null;
+          return { firstName: p.firstName, lastName: p.lastName, profileImageUrl: p.avatarUrl, manualSkillLevel: p.manualSkillLevel };
+        }));
+        const team2Details = await Promise.all(m.team2.map(async (id: Id<"players">) => {
+          const p = await ctx.db.get(id);
+          if (!p || p.tenantId !== session.tenantId) return null;
+          return { firstName: p.firstName, lastName: p.lastName, profileImageUrl: p.avatarUrl, manualSkillLevel: p.manualSkillLevel };
+        }));
+        return { _id: m._id, courtName: m.courtName, status: m.status, score1: m.score1, score2: m.score2, team1Details: team1Details.filter(p => p !== null), team2Details: team2Details.filter(p => p !== null), };
+      })
+    );
+    return { entries, truncated };
   },
 });

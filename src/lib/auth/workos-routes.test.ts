@@ -63,6 +63,9 @@ const workosEnvKeys = [
   "WORKOS_API_KEY",
   "WORKOS_COOKIE_PASSWORD",
   "NEXT_PUBLIC_WORKOS_REDIRECT_URI",
+  // Read by the Convex callback reconciliation, not the Next.js route, but
+  // kept in the fixture so the complete-env shape matches production.
+  "WORKOS_ORGANIZATION_ID",
 ] as const;
 
 const originalWorkosEnv = Object.fromEntries(
@@ -84,20 +87,38 @@ function setWorkosEnv(env: Partial<Record<(typeof workosEnvKeys)[number], string
 
   for (const [key, value] of Object.entries(env)) {
     if (value !== undefined) {
-      process.env[key] = value;
+      // NODE_ENV is typed read-only by Next's ambient declarations; the
+      // local `ProcessEnv`-shaped cast is the narrow, documented way to
+      // mutate the test process environment without a broad `any`.
+      (process.env as Record<string, string | undefined>)[key] = value;
     }
   }
 }
 
 function restoreWorkosEnv() {
+  const env = process.env as Record<string, string | undefined>;
   for (const key of workosEnvKeys) {
     const value = originalWorkosEnv[key];
     if (value === undefined) {
-      delete process.env[key];
+      delete env[key];
     } else {
-      process.env[key] = value;
+      env[key] = value;
     }
   }
+}
+
+/**
+ * Narrow a proxy/middleware result to a `Response`. The real `proxy()`
+ * return type unions Next's `Promise<NextMiddlewareResult>` (an opaque
+ * middleware shape) with `NextResponse`; in these tests every code path
+ * returns a concrete `Response`, so this typed helper lets us assert on
+ * `status`/`headers`/`json`/`text` without scattering `as any` casts.
+ */
+function asResponse(value: unknown): Response {
+  if (!(value instanceof Response)) {
+    throw new Error(`expected a Response, got ${typeof value}`);
+  }
+  return value;
 }
 
 beforeEach(() => {
@@ -365,7 +386,7 @@ describe("AuthKit proxy route", () => {
     setWorkosEnv({ NODE_ENV: "development" });
 
     const { default: proxy } = await import("../../proxy");
-    const response = proxy(new Request("https://app.example.com/admin") as never, {} as never);
+    const response = asResponse(proxy(new Request("https://app.example.com/admin") as never, {} as never));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
@@ -376,7 +397,7 @@ describe("AuthKit proxy route", () => {
     setWorkosEnv({ NODE_ENV: "production" });
 
     const { default: proxy } = await import("../../proxy");
-    const response = proxy(new Request("https://app.example.com/admin") as never, {} as never);
+    const response = asResponse(proxy(new Request("https://app.example.com/admin") as never, {} as never));
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
@@ -392,7 +413,7 @@ describe("AuthKit proxy route", () => {
     const request = new Request("https://app.example.com/admin");
     const event = {};
     const { default: proxy } = await import("../../proxy");
-    const response = proxy(request as never, event as never);
+    const response = asResponse(proxy(request as never, event as never));
 
     expect(authkitMocks.authkitProxy).toHaveBeenCalledTimes(1);
     expect(authkitMocks.proxyHandler).toHaveBeenCalledWith(request, event);

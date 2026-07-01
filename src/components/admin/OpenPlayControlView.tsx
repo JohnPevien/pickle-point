@@ -63,7 +63,7 @@ type OpenPlayControlViewProps = {
 const ACTIVE_STATUSES = new Set(["pending", "in_progress"]);
 
 export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPlayControlViewProps) {
-  const sessions = useQuery(api.openPlaySessions.listByTenant, { tenantId, limit: 25 });
+  const sessions = useQuery(api.openPlaySessions.listByTenant, { tenantId });
   const playersPage = useQuery(api.players.listByTenant, {
     tenantId,
     paginationOpts: { numItems: 200, cursor: null },
@@ -76,18 +76,24 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
     api.openPlaySessions.getById,
     currentSessionId ? { sessionId: currentSessionId } : "skip",
   );
-  const sessionPlayers = useQuery(
+  const sessionPlayersResult = useQuery(
     api.openPlaySessions.getSessionPlayers,
     currentSessionId ? { sessionId: currentSessionId } : "skip",
   );
-  const liveMatches = useQuery(
+  const sessionPlayers = sessionPlayersResult?.entries;
+  const sessionPlayersTruncated = sessionPlayersResult?.truncated ?? false;
+  const liveMatchesResult = useQuery(
     api.openPlaySessions.getLiveMatches,
     currentSessionId ? { sessionId: currentSessionId } : "skip",
   );
-  const matchHistory = useQuery(
+  const liveMatches = liveMatchesResult?.entries;
+  const liveMatchesTruncated = liveMatchesResult?.truncated ?? false;
+  const matchHistoryResult = useQuery(
     api.openPlaySessions.getMatchHistory,
     currentSessionId ? { sessionId: currentSessionId } : "skip",
   );
+  const matchHistory = matchHistoryResult?.entries;
+  const matchHistoryTruncated = matchHistoryResult?.truncated ?? false;
 
   const createSession = useMutation(api.openPlaySessions.createSession);
   const updateSessionStatus = useMutation(api.openPlaySessions.updateSessionStatus);
@@ -106,7 +112,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
     [players],
   );
   const sortedSessionPlayers = useMemo(
-    () => sortSessionPlayers((sessionPlayers ?? []) as SessionPlayerRow[]),
+    () => sortSessionPlayers(sessionPlayers ?? []),
     [sessionPlayers],
   );
   const { queuedPlayers, sittingOutPlayers, pausedPlayers, otherSessionPlayers, playingCount } =
@@ -128,7 +134,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
       return { queuedPlayers, sittingOutPlayers, pausedPlayers, otherSessionPlayers, playingCount };
     }, [sortedSessionPlayers]);
   const availableCount = sortedSessionPlayers.filter(isAvailablePlayer).length;
-  const activeMatches = ((liveMatches ?? []) as LiveMatch[]).filter((match) => ACTIVE_STATUSES.has(match.status));
+  const activeMatches = (liveMatches ?? []).filter((match) => ACTIVE_STATUSES.has(match.status));
   // matchHistory includes cancelled matches for the Recent Results card,
   // but the "Results" metric and "X completed matches" description should
   // count only completed matches.
@@ -528,7 +534,10 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
               <Card>
                 <CardHeader>
                   <CardTitle>Courts</CardTitle>
-                  <CardDescription>{activeMatches.length} active matches</CardDescription>
+                  <CardDescription>
+                    {activeMatches.length} active matches
+                    {liveMatchesTruncated ? " (showing first 50)" : ""}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <Button
@@ -545,7 +554,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                       <MatchScoreCard
                         key={match._id}
                         match={match}
-                        sessionPlayers={sortedSessionPlayers as SessionPlayerRow[]}
+                        sessionPlayers={sortedSessionPlayers}
                         activeMatches={activeMatches}
                       />
                     ))}
@@ -561,10 +570,13 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
               <Card>
                 <CardHeader>
                   <CardTitle>Recent Results</CardTitle>
-                  <CardDescription>{completedCount} completed matches</CardDescription>
+                  <CardDescription>
+                    {completedCount} completed matches
+                    {matchHistoryTruncated ? " (showing first 50 history records)" : ""}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {((matchHistory ?? []) as LiveMatch[]).slice(0, 8).map((match) => (
+                  {(matchHistory ?? []).slice(0, 8).map((match) => (
                     <div
                       key={match._id}
                       className={`grid gap-2 rounded-md border p-3 text-sm md:grid-cols-[1fr_auto_1fr] ${
@@ -575,7 +587,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                       <span className="font-semibold">
                         {match.status === "cancelled"
                           ? "Cancelled"
-                          : `${match.score1} - ${match.score2}`}
+                          : `${match.score1 ?? 0} - ${match.score2 ?? 0}`}
                       </span>
                       <span className="md:text-right">{teamName(match.team2Details)}</span>
                     </div>
@@ -671,6 +683,7 @@ export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPl
                   <CardTitle>Players</CardTitle>
                   <CardDescription>
                     {sortedSessionPlayers.length} checked in / {availableCount} available
+                    {sessionPlayersTruncated ? " (showing first 500)" : ""}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
