@@ -1,3 +1,8 @@
+---
+title: Match History Participant Backfill Plan
+description: Phase 3.2 data backfill for participants
+---
+
 # Match History Participant Backfill Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
