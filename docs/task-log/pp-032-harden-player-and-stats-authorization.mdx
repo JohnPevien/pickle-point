@@ -1,0 +1,42 @@
+---
+title: "PP-032: Harden Player And Statistics Authorization"
+description: Phase 3.2 authorization hardening for player directory, player stats, and the public leaderboard.
+---
+
+## Status
+
+Done
+
+## Goal
+
+Apply explicit owner/Game Master boundaries to player and statistics Convex functions, split safe public statistics projections from administrative player data, and fail player self-service closed until account-backed player linkage lands in Task 4.1.
+
+## Acceptance Criteria
+
+- Administrative player listing, creation, correction, and deletion require an active owner or Game Master.
+- Player resource authority is derived from the loaded player row, never a browser-supplied tenant ID.
+- Unauthenticated, suspended, player, and cross-tenant administrative access fails closed.
+- Ownership is never authorized from browser-supplied user IDs, email addresses, or names.
+- Identity-linking fields stay immutable through ordinary player/admin updates.
+- Public statistics projections exclude email, phone, notes, opt-in state, WorkOS identity, token identifiers, and full player documents.
+- Player self-service operations fail closed until the Task 4.1 `players.userId` link can prove ownership.
+- All reads stay bounded and index-backed, with truncation flags where a defensive cap applies.
+- The Convex access matrix records the hardened behavior.
+
+## Completion Evidence
+
+- `convex/players.test.ts` and `convex/stats.test.ts`: 72 focused tests passed.
+- ESLint passed on the four primary files.
+- `node scripts/check-convex-access.mjs`: all registered functions classified.
+- `git diff --check` passed.
+- Full Vitest suite and production build deferred to the Phase 3 gate.
+- Commit pending (left uncommitted per operator instruction).
+
+## Source / Provenance
+
+- Source: Phase 3, Task 3.2 in `docs/superpowers/plans/2026-06-29-single-tenant-auth-open-play-implementation.md`.
+- Created date: 2026-07-01.
+
+## Changelog Impact
+
+Recorded because this changes public data exposure (leaderboard projection) and administrative authorization boundaries for the player domain.

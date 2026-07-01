@@ -98,7 +98,12 @@ export function PlayerDirectoryAdminView({
   tenantId,
   tenantName,
 }: PlayerDirectoryAdminViewProps) {
-  const players = useQuery(api.players.listByTenant, { tenantId });
+  const playersQuery = useQuery(api.players.listByTenant, {
+    tenantId,
+    paginationOpts: { numItems: 200, cursor: null },
+  });
+  const players = playersQuery?.page;
+  const isTruncated = playersQuery ? !playersQuery.isDone : false;
   const createPlayer = useMutation(api.players.createPlayer);
   const updatePlayer = useMutation(api.players.updatePlayer);
   const deletePlayer = useMutation(api.players.deletePlayer);
@@ -346,6 +351,16 @@ export function PlayerDirectoryAdminView({
           <Card>
             <CardHeader>
               <CardTitle>Directory</CardTitle>
+              {isTruncated ? (
+                <p
+                  role="status"
+                  className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                >
+                  Showing the most recent {sortedPlayers.length} players. Older
+                  players will appear once you archive or remove existing rows —
+                  pagination is required to keep this admin view bounded.
+                </p>
+              ) : null}
               <CardDescription>
                 {players ? `${visiblePlayers.length} of ${players.length} players` : "Loading players"}
               </CardDescription>

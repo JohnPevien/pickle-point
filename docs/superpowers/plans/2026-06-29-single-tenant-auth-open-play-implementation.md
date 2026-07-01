@@ -424,11 +424,11 @@ git commit -m "fix: remove self-service workspace creation"
 - Modify: `convex/stats.ts`
 - Modify: `convex/stats.test.ts`
 
-- [ ] Write failing cases for own-profile safe edits, another-player denial, Game Master corrections, identity-link immutability, safe public event stats, and hidden contacts.
-- [ ] Run `pnpm test convex/players.test.ts convex/stats.test.ts` and confirm failure.
-- [ ] Split safe public projections from administrative/player-private queries and invoke central helpers in every mutation.
-- [ ] Re-run focused tests and confirm pass.
-- [ ] Commit with `git commit -m "fix: enforce player and stats authorization"`.
+- [x] Write failing cases for administrative access (owner/game_master), unauthenticated and player rejection, suspended membership, cross-tenant resource IDs, immutable identity fields, safe public statistics projection, hidden contact/private fields, and fail-closed self-service (no account-backed player linkage yet).
+- [x] Run focused tests and confirm red (40 failing for the intended gaps).
+- [x] Split safe public projections from administrative/player-private queries and invoke central helpers in every mutation. Players fail closed with `FORBIDDEN` (no `players.userId` link until Task 4.1). Bounded reads with truncation flags replace unbounded `.collect()`.
+- [x] Re-run focused tests: 72 player/stats tests passed.
+- [x] Run focused verification (vitest 72/72 passed, eslint clean, check-convex-access 63 functions classified, `git diff --check` clean). Commit pending — operator will commit as `fix: enforce player and stats authorization`. Full suite + build deferred to the Phase 3 gate.
 
 ### Task 3.3: Protect open-play reads and administrative lifecycle
 

@@ -1,13 +1,53 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { query, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireRole, requireOwnPlayer, AppError } from "./lib/authz";
+import { finiteInt } from "./lib/num";
 import {
   findPlayerByContact,
   legacyContactValue,
   normalizeEmail,
   normalizePhone,
 } from "./playerContact";
+
+/** Roles permitted to manage players. Task 3.2: owner + game_master. */
+const PLAYER_ADMIN_ROLES = ["owner", "game_master"] as const;
+
+/**
+ * Maximum `numItems` Convex accepts for one `paginate` call. The cap
+ * is intentionally below Convex's hard internal limit so we leave
+ * headroom for callers that may scale up later.
+ */
+const MAX_PLAYER_LIST_LIMIT = 200;
+
+/**
+ * Run an authorization helper and translate its `AppError` into the
+ * `{success:false, error}` shape admin mutations return. Other errors
+ * propagate. Use to avoid repeating the try/catch bridge in every
+ * admin mutation.
+ */
+async function authOrFail<T>(
+  auth: Promise<T>
+): Promise<{ success: false; error: string } | { success: true; value: T }> {
+  try {
+    return { success: true, value: await auth };
+  } catch (error) {
+    if (error instanceof AppError) {
+      return { success: false, error: error.message };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Defensive cap on the number of snapshots read by `getPlayerStats`. The
+ * query already constrains by a day window; this cap protects against a
+ * pathological snapshot volume. When exceeded, the response carries
+ * `truncated: true` so the caller knows the aggregate is over a subset.
+ */
+const MAX_PLAYER_STATS_SNAPSHOTS = 1000;
 
 // Helper validator for registering a single player
 const playerInputValidator = v.object({
@@ -58,12 +98,19 @@ async function findPlayerDeleteBlocker(
     return "tournament entrants";
   }
 
-  for await (const match of ctx.db
-    .query("matchHistory")
-    .withIndex("by_tenant", (q) => q.eq("tenantId", player.tenantId))) {
-    if (match.players.some((playerId) => playerId === player._id)) {
-      return "match history";
-    }
+  // Bounded lookup via `by_tenant_and_playerId`. Reads a single index
+  // page (`.first`) instead of streaming the whole tenant, so the
+  // mutation never risks a Convex transaction limit. Pre-existing rows
+  // that predate the reference table are still detected because the
+  // mutation that records matches eagerly backfills the reference row.
+  const matchParticipant = await ctx.db
+    .query("matchHistoryParticipants")
+    .withIndex("by_tenant_and_playerId", (q) =>
+      q.eq("tenantId", player.tenantId).eq("playerId", player._id)
+    )
+    .first();
+  if (matchParticipant) {
+    return "match history";
   }
 
   const statsSnapshot = await ctx.db
@@ -78,16 +125,37 @@ async function findPlayerDeleteBlocker(
 }
 
 /**
- * Lists all registered players within a Game Master's workspace.
+ * Lists players within an owner/game_master's workspace. Task 3.2: caller
+ * must be an owner or game_master in `args.tenantId` (validated server-side,
+ * including trusted WorkOS claims for admin roles). Returns full player docs
+ * — this is an administrative view, so contact fields are expected here; the
+ * public boundary is enforced separately by `stats.getLeaderboard`.
+ *
+ * Phase 3.2 review fix: callers paginate via `paginationOpts` instead of
+ * silently truncating at the cap. The response shape is Convex's standard
+ * `{ page, isDone, continueCursor }` so the UI can walk every player with
+ * a deterministic cursor and surface an explicit truncation indicator.
  */
 export const listByTenant = query({
-  args: { tenantId: v.id("tenants") },
+  args: {
+    tenantId: v.id("tenants"),
+    limit: v.optional(v.number()),
+    paginationOpts: v.optional(paginationOptsValidator),
+  },
   handler: async (ctx, args) => {
+    await requireRole(ctx, args.tenantId, PLAYER_ADMIN_ROLES);
+    const numItems = finiteInt(
+      args.limit ?? MAX_PLAYER_LIST_LIMIT,
+      1,
+      MAX_PLAYER_LIST_LIMIT,
+      MAX_PLAYER_LIST_LIMIT
+    );
+    const opts = args.paginationOpts ?? { numItems, cursor: null };
     return await ctx.db
       .query("players")
       .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
-      .order("desc")
-      .collect();
+      .order("asc")
+      .paginate(opts);
   },
 });
 
@@ -256,17 +324,28 @@ const skillLevelValidator = v.union(
 );
 
 /**
- * Fetches a single registered player by ID.
+ * Fetches a single player by ID. Task 3.2: authority is derived from the
+ * loaded player row (`player.tenantId`) via `requireOwnPlayer`, which admits
+ * owner/game_master and rejects players (FORBIDDEN) and unauthenticated
+ * callers. Until Task 4.1 wires `players.userId`, player self-service fails
+ * closed — there is no way to prove ownership of a player row.
+ *
+ * A missing player throws RESOURCE_NOT_FOUND rather than returning null, so
+ * no caller can distinguish "exists but forbidden" from "absent".
  */
 export const getById = query({
   args: { playerId: v.id("players") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.playerId);
+    const { player } = await requireOwnPlayer(ctx, args.playerId);
+    return player;
   },
 });
 
 /**
- * Creates a player profile in a tenant workspace after validating required names and contact uniqueness.
+ * Creates a player profile in a tenant workspace. Task 3.2: caller must be
+ * an owner or game_master in `args.tenantId` (checked before any insert).
+ * Authorization failures return `{success:false, error}` so the admin UI
+ * can surface a toast; unexpected errors propagate.
  */
 export const createPlayer = mutation({
   args: {
@@ -285,6 +364,11 @@ export const createPlayer = mutation({
     optIn: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const auth = await authOrFail(
+      requireRole(ctx, args.tenantId, PLAYER_ADMIN_ROLES)
+    );
+    if (!auth.success) return { success: false, error: auth.error };
+
     const firstName = requiredName(args.firstName);
     if (!firstName) return { success: false, error: "First name is required." };
     const lastName = requiredName(args.lastName);
@@ -331,7 +415,13 @@ export const createPlayer = mutation({
 });
 
 /**
- * Updates editable player profile fields while preserving tenant ownership and contact uniqueness.
+ * Updates editable player profile fields. Task 3.2: authority is derived
+ * from the loaded player row via `requireOwnPlayer` (admin-only; players
+ * fail closed with FORBIDDEN until Task 4.1). The client `tenantId` is kept
+ * only to surface a stale-client mismatch after authorization. Only
+ * `AppError` is converted to `{success:false, error}`; unexpected errors
+ * propagate. The patch only ever sets editable profile fields — `tenantId`,
+ * `_id`, and `createdAt` are never modified.
  */
 export const updatePlayer = mutation({
   args: {
@@ -351,12 +441,12 @@ export const updatePlayer = mutation({
     optIn: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const player = await ctx.db.get(args.playerId);
-    if (!player) {
-      return { success: false, error: "Player not found." };
-    }
+    const auth = await authOrFail(requireOwnPlayer(ctx, args.playerId));
+    if (!auth.success) return { success: false, error: auth.error };
+    const player: Doc<"players"> = auth.value.player;
+    // Stale-client guard: the client tenantId must match the derived tenant.
     if (player.tenantId !== args.tenantId) {
-      return { success: false, error: "Player workspace mismatch." };
+      return { success: false as const, error: "Player workspace mismatch." };
     }
 
     const patch: Partial<Doc<"players">> = {};
@@ -418,50 +508,68 @@ export const updatePlayer = mutation({
 });
 
 /**
- * Deletes a player only when no sessions, tournament entries, match history, or stats still reference them.
+ * Deletes a player only when no sessions, tournament entries, match history,
+ * or stats still reference them. Task 3.2: authority is derived from the
+ * loaded player row via `requireOwnPlayer` (admin-only). Only `AppError` is
+ * converted to `{success:false, error}`; unexpected errors propagate.
  */
 export const deletePlayer = mutation({
   args: { tenantId: v.id("tenants"), playerId: v.id("players") },
   handler: async (ctx, args) => {
-    const player = await ctx.db.get(args.playerId);
-    if (!player) {
-      return { success: false, error: "Player not found." };
-    }
+    const auth = await authOrFail(requireOwnPlayer(ctx, args.playerId));
+    if (!auth.success) return { success: false, error: auth.error };
+    const player: Doc<"players"> = auth.value.player;
     if (player.tenantId !== args.tenantId) {
-      return { success: false, error: "Player workspace mismatch." };
+      return { success: false as const, error: "Player workspace mismatch." };
     }
     const blocker = await findPlayerDeleteBlocker(ctx, player);
     if (blocker) {
-      return { success: false, error: `Cannot delete player with existing ${blocker}.` };
+      return { success: false as const, error: `Cannot delete player with existing ${blocker}.` };
     }
     await ctx.db.delete(args.playerId);
-    return { success: true };
+    return { success: true as const };
   },
 });
 
 /**
  * Aggregates a player's recent stats snapshots over a bounded day window.
+ * Task 3.2: authority is derived from the loaded player row via
+ * `requireOwnPlayer` (admin-only; players fail closed with FORBIDDEN until
+ * Task 4.1). Returns only aggregate counters — no contact/private fields.
+ *
+ * Reads are capped at `MAX_PLAYER_STATS_SNAPSHOTS` (ordered newest-first by
+ * snapshotDate). If the cap is exceeded, `truncated: true` signals that the
+ * aggregate covers a subset of the window.
  */
 export const getPlayerStats = query({
   args: {
     playerId: v.id("players"),
     windowDays: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const windowDays = Math.min(Math.max(Math.trunc(args.windowDays ?? 30), 1), 365);
+  handler: async (ctx, args): Promise<{
+    wins: number;
+    losses: number;
+    pointsFor: number;
+    pointsAgainst: number;
+    truncated: boolean;
+  }> => {
+    await requireOwnPlayer(ctx, args.playerId);
+
+    const windowDays = finiteInt(args.windowDays ?? 30, 1, 365, 30);
     const windowStart = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    // Fetch MAX + 1 so we can detect truncation without an extra count.
     const snapshots = await ctx.db
       .query("statsSnapshots")
       .withIndex("by_playerId_and_snapshotDate", (q) =>
         q.eq("playerId", args.playerId).gte("snapshotDate", windowStart)
       )
-      .collect();
+      .order("desc")
+      .take(MAX_PLAYER_STATS_SNAPSHOTS + 1);
 
-    if (snapshots.length === 0) {
-      return { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 };
-    }
+    const truncated = snapshots.length > MAX_PLAYER_STATS_SNAPSHOTS;
+    const considered = truncated ? snapshots.slice(0, MAX_PLAYER_STATS_SNAPSHOTS) : snapshots;
 
-    return snapshots.reduce(
+    const totals = considered.reduce(
       (acc, s) => ({
         wins: acc.wins + s.wins,
         losses: acc.losses + s.losses,
@@ -470,5 +578,6 @@ export const getPlayerStats = query({
       }),
       { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 }
     );
+    return { ...totals, truncated };
   },
 });

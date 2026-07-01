@@ -64,7 +64,11 @@ const ACTIVE_STATUSES = new Set(["pending", "in_progress"]);
 
 export function OpenPlayControlView({ tenantId, tenantName, tenantSlug }: OpenPlayControlViewProps) {
   const sessions = useQuery(api.openPlaySessions.listByTenant, { tenantId, limit: 25 });
-  const players = useQuery(api.players.listByTenant, { tenantId });
+  const playersPage = useQuery(api.players.listByTenant, {
+    tenantId,
+    paginationOpts: { numItems: 200, cursor: null },
+  });
+  const players = playersPage?.page;
   const [selectedSessionId, setSelectedSessionId] = useState<Id<"openPlaySessions"> | null>(null);
   const currentSessionId = selectedSessionId ?? sessions?.[0]?._id ?? null;
 

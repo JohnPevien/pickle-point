@@ -260,6 +260,20 @@ export default defineSchema({
     .index("by_tenant", ["tenantId"])
     .index("by_player", ["players"]),
 
+  // Reference rows for each (matchHistory, player) pair so the
+  // `deletePlayer` blocker can locate a player's match history via a
+  // scalar index instead of scanning the `matchHistory.players`
+  // array field. New matches dual-write these rows; legacy matches are
+  // repaired by `migrations/matchHistoryParticipants.backfillTenant`.
+  matchHistoryParticipants: defineTable({
+    matchHistoryId: v.id("matchHistory"),
+    tenantId: v.id("tenants"),
+    playerId: v.id("players"),
+  })
+    .index("by_matchHistoryId", ["matchHistoryId"])
+    .index("by_playerId", ["playerId"])
+    .index("by_tenant_and_playerId", ["tenantId", "playerId"]),
+
   // 13. Tournaments
   tournaments: defineTable({
     tenantId: v.id("tenants"),

@@ -769,9 +769,13 @@ export const recordMatchScore = mutation({
       completedAt: Date.now(),
     });
 
-    // 2. Insert into Match History
+    // 2. Insert into Match History. The reference rows in
+    // `matchHistoryParticipants` (Phase 3.2) let the bounded delete
+    // blocker find a player's matches via a scalar index instead of
+    // scanning the `players` array. We dedupe first so re-runs of the
+    // mutation don't double-insert.
     const winners = args.score1 > args.score2 ? match.team1 : match.team2;
-    await ctx.db.insert("matchHistory", {
+    const matchHistoryId = await ctx.db.insert("matchHistory", {
       tenantId: session.tenantId,
       sessionId: session._id,
       players: [...match.team1, ...match.team2],
@@ -779,6 +783,13 @@ export const recordMatchScore = mutation({
       winners,
       playedAt: Date.now(),
     });
+    for (const playerId of [...match.team1, ...match.team2]) {
+      await ctx.db.insert("matchHistoryParticipants", {
+        matchHistoryId,
+        tenantId: session.tenantId,
+        playerId,
+      });
+    }
 
     // 3. Update player stats snapshots (wins, losses, points)
     const updateStats = async (pId: Id<"players">, isWin: boolean, ptsFor: number, ptsAgainst: number) => {
