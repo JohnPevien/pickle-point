@@ -28,9 +28,10 @@ statistics surfaces: all six `players.*` functions (admin-only via
 bounded reads; players fail closed with `FORBIDDEN` pending the Task 4.1
 `players.userId` link) and `stats.getLeaderboard` (public projection with an
 active-tenant gate, cross-tenant/missing-player exclusion, and a truncation
-flag). Rows marked ✅ 3.1 / ✅ 3.2 are hardened; the remaining tables
-(openPlaySessions, tournaments) and `players.registerTournamentTeam` are still
-at the baseline until Tasks 3.3–3.5 land.
+flag). Tasks 3.3–3.5 also harden open-play and tournament operations, split
+safe public projections from administrative reads, and make tournament
+registration fail closed until account-backed player profiles land in Task 4.1.
+Rows marked ✅ are hardened.
 
 Notation:
 
@@ -76,7 +77,7 @@ Notation:
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
 | `players.listByTenant` | query | `game_master` (hardened) | `tenantId: v.id("tenants")`, `limit?` | `args.tenantId` | `requireRole(ctx, args.tenantId, ["owner","game_master"])` — throws `AppError` on auth failure | Full player docs (incl. `email`, `phone`, `notes`, `optIn`) returned only to owner/game_master; bounded by `limit` (default/max 500) | ✅ 3.2 |
-| `players.registerTournamentTeam` | mutation | `player` (intended) / **unauthenticated today, creates accountless players** | `tenantId`, `tournamentId`, `teamName`, `skillTier`, `player1`, `player2` | `tournamentId` → `tournament.tenantId` (mismatch check); `args.tenantId` client-supplied | `requireTenantMembership` + registered-profile-only (per Task 3.5) | Creates accountless persistent players from public registration (non-goal) | 3.5 |
+| `players.registerTournamentTeam` | mutation | `player` (hardened; fails closed pending Task 4.1) | `tenantId`, `tournamentId`, `teamName`, `skillTier`, legacy `player1`, `player2` | `tournamentId` → `tournament.tenantId`; client `tenantId` is mismatch-only | `requirePlayerProfile(ctx, tournament.tenantId)` | Never creates player rows; returns `PROFILE_REQUIRED` until account-backed profiles exist | ✅ 3.5 |
 | `players.getById` | query | `game_master` (hardened; admin-only pending Task 4.1) | `playerId: v.id("players")` | derived: `playerId` → `player.tenantId` | `requireOwnPlayer(ctx, playerId)` — admin-only; players `FORBIDDEN` (fail-closed until `players.userId`); missing → `RESOURCE_NOT_FOUND` | Full player doc returned only to owner/game_master | ✅ 3.2 |
 | `players.createPlayer` | mutation | `game_master` (hardened) | `tenantId`, names, skill, contact, gender, avatar, notes, optIn | `args.tenantId` (checked before insert) | `requireRole(ctx, args.tenantId, ["owner","game_master"])` | none — returns `{ success, playerId? }` only; only `AppError` → `{success:false, error}` | ✅ 3.2 |
 | `players.updatePlayer` | mutation | `game_master` (hardened; admin-only pending Task 4.1) | `tenantId`, `playerId`, many optional fields | derived: `playerId` → `player.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireOwnPlayer(ctx, playerId)` — admin-only; players `FORBIDDEN` | none — returns `{ success }` only; patch never sets `_id`/`tenantId`/`createdAt`; no identity-link arg exists | ✅ 3.2 |
@@ -144,36 +145,31 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
 
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
-| `tournaments.listByTenant` | query | `game_master` (intended) / **unauthenticated today** | `tenantId: v.id("tenants")` | `args.tenantId` (client-supplied) | `requireRole(..., ["owner","game_master"])` (admin); public published-list projection later | Returns full tournament docs to any caller | 3.5 |
-| `tournaments.getActiveTournament` | query | `public_read` (intended) / **unauthenticated today** | `tenantId` | `args.tenantId` (client-supplied) | Public projection | Returns tournament doc to any caller | 3.5 |
-| `tournaments.getById` | query | `player`/`public_read` (intended) / **unauthenticated today** | `tournamentId: v.id("tournaments")` | `tournamentId` → `tournament.tenantId` | Public projection / membership | Returns full tournament doc to any caller | 3.5 |
-| `tournaments.getRegisteredTeams` | query | `player`/`public_read` (intended) / **unauthenticated today, returns player names** | `tournamentId` | `tournamentId` → `tournament.tenantId` (NOT derived today) | Public projection; display names only | Returns entrant names + player first/last names | 3.5 / 4.6 |
-| `tournaments.generateBracket` | mutation | `game_master`/`owner` (intended) / **mismatch check only today** | `tenantId`, `tournamentId` | `tournamentId` → `tournament.tenantId` (compared to `args.tenantId`) | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | Client `tenantId` trusted; no role check | 3.5 |
-| `tournaments.createTournament` | mutation | `game_master` (intended) / **unauthenticated today** | `tenantId`, `name`, `date`, `format`, `location?` | `args.tenantId` (client-supplied) | `requireRole(..., ["owner","game_master"])` | No auth; client `tenantId` trusted | 3.5 |
-| `tournaments.updateTournamentStatus` | mutation | `game_master`/`owner` (intended) / **mismatch check only today** | `tenantId`, `tournamentId`, `status` | `tournamentId` → `tournament.tenantId` (compared) | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | Client `tenantId` trusted; no role check | 3.5 |
-| `tournaments.updateTeamSeed` | mutation | `game_master`/`owner` (intended) / **mismatch check only today** | `tenantId`, `tournamentId`, `entrantId`, `seed` | `tournamentId` → `tournament.tenantId` (compared) | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | Client `tenantId` trusted; no role check | 3.5 |
-| `tournaments.getTournamentBracket` | query | `public_read` (intended) / **unauthenticated today** | `tournamentId` | `tournamentId` → `tournament.tenantId` (NOT derived today) | Public projection | Returns entrant/winner names to any caller | 3.5 |
-| `tournaments.getTournamentView` | query | `player`/`public_read` (intended) / **mismatch check today, returns player names** | `tenantId`, `tournamentId` | `tournamentId` → `tournament.tenantId` (compared to `args.tenantId`) | Public projection / membership | Returns teams with `players` first/last names | 3.5 / 4.6 |
-| `tournaments.recordTournamentScore` | mutation | `game_master`/`owner` (intended) / **mismatch check only today** | `tenantId`, `matchId`, `score1`, `score2` | `matchId` → `match.tournamentId` → `tournament.tenantId` (compared) | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | Client `tenantId` trusted; no role check | 3.5 |
+| `tournaments.listByTenant` | query | `game_master` (hardened) | `tenantId` | `args.tenantId` | `requireRole(ctx, args.tenantId, ["owner","game_master"])` | Full tournament docs only to admins; bounded to 100 | ✅ 3.5 |
+| `tournaments.getActiveTournament` | query | `public_read` (hardened) | `tenantId` | `args.tenantId` → active tenant | Public projection | Safe tournament fields only | ✅ 3.5 |
+| `tournaments.getById` | query | `public_read` (hardened) | `tournamentId` | `tournamentId` → `tournament.tenantId` → active tenant | Public projection | Safe tournament fields only; no tenant/system fields | ✅ 3.5 |
+| `tournaments.getRegisteredTeams` | query | `public_read` (hardened) | `tournamentId` | `tournamentId` → active tenant | Public projection | Entrant metadata and display names only; bounded to 100 | ✅ 3.5 / 4.6 |
+| `tournaments.generateBracket` | mutation | `game_master`/`owner` (hardened) | `tenantId`, `tournamentId` | `tournamentId` → `tournament.tenantId`; client `tenantId` mismatch-only | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | none | ✅ 3.5 |
+| `tournaments.createTournament` | mutation | `game_master` (hardened) | `tenantId`, `name`, `date`, `format`, `location?` | `args.tenantId` before insert | `requireRole(ctx, args.tenantId, ["owner","game_master"])` | none | ✅ 3.5 |
+| `tournaments.updateTournamentStatus` | mutation | `game_master`/`owner` (hardened) | `tenantId`, `tournamentId`, `status` | `tournamentId` → `tournament.tenantId`; client `tenantId` mismatch-only | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | none | ✅ 3.5 |
+| `tournaments.updateTeamSeed` | mutation | `game_master`/`owner` (hardened) | `tenantId`, `tournamentId`, `entrantId`, `seed` | `tournamentId` → `tournament.tenantId`; entrant checked against tournament | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | none | ✅ 3.5 |
+| `tournaments.getTournamentBracket` | query | `public_read` (hardened) | `tournamentId` | `tournamentId` → active tenant | Public projection | Safe match/entrant display fields; bounded to 500 | ✅ 3.5 |
+| `tournaments.getTournamentView` | query | `public_read` (hardened) | `tenantId`, `tournamentId` | `tournamentId` → active tenant; client `tenantId` mismatch-only | Public projection | Safe tournament, team display, bracket, and truncation summary fields | ✅ 3.5 / 4.6 |
+| `tournaments.recordTournamentScore` | mutation | `game_master`/`owner` (hardened) | `tenantId`, `matchId`, `score1`, `score2` | `matchId` → `match.tournamentId` → `tournament.tenantId`; client `tenantId` mismatch-only | `requireRole(ctx, tournament.tenantId, ["owner","game_master"])` | none | ✅ 3.5 |
 
 ## Notes for Phase 3
 
-- **Tenant derivation gaps.** Every `*_by_sessionId`/`*_by_matchId` mutation
-  in `openPlaySessions.ts` and `tournaments.getRegisteredTeams`/
-  `getTournamentBracket` currently take a resource ID and never derive the
-  tenant from it; Phase 3 must load the resource, derive `tenantId`, then
-  call `requireRole`. The client `tenantId` arg on these must be removed or
-  ignored as an authority source.
-- **Accountless player creation from public calls.**
-  `players.registerTournamentTeam` and
-  `openPlaySessions.registerAndCheckInGuest` create persistent `players` rows
-  from unauthenticated public calls. Task 3.5 / 5.4 replace these with
-  registered-profile-only and event-only walk-in paths per the design.
-- **Private fields in public reads.** `getSessionPlayers`, `getLiveMatches`,
-  `getMatchHistory`, `getRegisteredTeams`, `getTournamentView`, `getLeaderboard`,
-  and the various `getById`/`listByTenant` queries return full docs including
-  `email`, `phone`, `notes`, `optIn`, and WorkOS identity. Phase 3 splits safe
-  public projections; Phase 4.6 adds collision-aware display names.
+- **Tenant derivation.** Session-, match-, tournament-, and entrant-scoped
+  administrative mutations now load the resource and derive tenant authority
+  before using client-supplied IDs. Remaining client `tenantId` arguments are
+  compatibility/mismatch checks, never authority sources.
+- **Accountless registration.** `players.registerTournamentTeam` no longer
+  creates player rows and fails closed with `PROFILE_REQUIRED` until Task 4.1.
+  Authenticated Game Masters may still create persistent open-play guests;
+  Task 5.4 replaces those with event-only walk-ins.
+- **Public projections.** Public open-play, tournament, and leaderboard reads
+  expose bounded display-safe shapes. Administrative reads retain full docs
+  behind owner/Game Master authorization. Phase 4.6 adds collision-aware names.
 - **`tenants.createWorkspace`** was removed in Task 2.4. Tenant creation is
   limited to internal bootstrap functions.
 

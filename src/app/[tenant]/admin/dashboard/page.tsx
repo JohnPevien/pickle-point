@@ -2,6 +2,7 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "../../../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/admin/DashboardView";
+import { requireWorkosAuth } from "@/lib/auth/server";
 
 export default async function AdminDashboardPage({
   params,
@@ -16,7 +17,12 @@ export default async function AdminDashboardPage({
     notFound();
   }
 
-  const allTournaments = await fetchQuery(api.tournaments.listByTenant, { tenantId: tenantData._id });
+  const auth = await requireWorkosAuth();
+  const allTournaments = await fetchQuery(
+    api.tournaments.listByTenant,
+    { tenantId: tenantData._id },
+    { token: auth.accessToken },
+  );
 
   const activeT = allTournaments.find(
     (t) =>

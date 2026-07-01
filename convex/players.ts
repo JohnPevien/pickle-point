@@ -3,7 +3,12 @@ import { paginationOptsValidator } from "convex/server";
 import { query, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireRole, requireOwnPlayer, AppError } from "./lib/authz";
+import {
+  requireRole,
+  requireOwnPlayer,
+  requirePlayerProfile,
+  AppError,
+} from "./lib/authz";
 import { finiteInt } from "./lib/num";
 import {
   findPlayerByContact,
@@ -179,11 +184,17 @@ export const registerTournamentTeam = mutation({
     player2: playerInputValidator,
   },
   handler: async (ctx, args) => {
-    // 1. Verify tournament exists and is open for registration
     const tournament = await ctx.db.get(args.tournamentId);
     if (!tournament) {
       return { success: false, error: "Tournament not found." };
     }
+
+    // Tournament enrollment is player-owned. Until Task 4.1 adds the
+    // account-backed `players.userId` link, this fails closed with
+    // PROFILE_REQUIRED. Crucially, no caller-provided contact data can create
+    // a persistent player row anymore.
+    const registeredPlayer = await requirePlayerProfile(ctx, tournament.tenantId);
+
     if (tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
@@ -191,30 +202,9 @@ export const registerTournamentTeam = mutation({
       return { success: false, error: "This tournament is not currently open for registration." };
     }
 
-    const p1FirstName = requiredName(args.player1.firstName);
-    if (!p1FirstName) return { success: false, error: "Player 1 first name is required." };
-    const p1LastName = requiredName(args.player1.lastName);
-    if (!p1LastName) return { success: false, error: "Player 1 last name is required." };
-    const p2FirstName = requiredName(args.player2.firstName);
-    if (!p2FirstName) return { success: false, error: "Player 2 first name is required." };
-    const p2LastName = requiredName(args.player2.lastName);
-    if (!p2LastName) return { success: false, error: "Player 2 last name is required." };
+    const teamName = requiredName(args.teamName);
+    if (!teamName) return { success: false, error: "Team name is required." };
 
-    const findExistingPlayer = async (
-      email?: string,
-      phone?: string,
-      legacyEmail?: string,
-      legacyPhone?: string
-    ) => {
-      return await findPlayerByContact(ctx, args.tenantId, {
-        email,
-        phone,
-        legacyEmail,
-        legacyPhone,
-      });
-    };
-
-    // Helper to see if a player is already registered for this tournament
     const isPlayerInTournament = async (playerId: Id<"players">) => {
       const p1Entrant = await ctx.db
         .query("tournamentEntrants")
@@ -233,80 +223,42 @@ export const registerTournamentTeam = mutation({
       return !!p2Entrant;
     };
 
-    // Resolve or create Player 1
-    const p1Email = normalizeEmail(args.player1.email);
-    const p1Phone = normalizePhone(args.player1.phone);
-    const p1LegacyEmail = legacyContactValue(args.player1.email);
-    const p1LegacyPhone = legacyContactValue(args.player1.phone);
+    if (await isPlayerInTournament(registeredPlayer._id)) {
+      return { success: false, error: "You are already registered for this tournament." };
+    }
+
+    // The legacy form still sends both player blocks. Player 1 is ignored as
+    // an authority source: the authenticated account profile is always slot
+    // one. Player 2 must already exist; this mutation never creates profiles.
     const p2Email = normalizeEmail(args.player2.email);
     const p2Phone = normalizePhone(args.player2.phone);
     const p2LegacyEmail = legacyContactValue(args.player2.email);
     const p2LegacyPhone = legacyContactValue(args.player2.phone);
-    if (!p1Email && !p1Phone) {
-      return { success: false, error: "Player 1 must have an email or phone number." };
-    }
     if (!p2Email && !p2Phone) {
-      return { success: false, error: "Player 2 must have an email or phone number." };
+      return { success: false, error: "Partner must have an email or phone number." };
     }
-    if ((p1Email && p1Email === p2Email) || (p1Phone && p1Phone === p2Phone)) {
+
+    const partner = await findPlayerByContact(ctx, tournament.tenantId, {
+      email: p2Email,
+      phone: p2Phone,
+      legacyEmail: p2LegacyEmail,
+      legacyPhone: p2LegacyPhone,
+    });
+    if (!partner) {
+      return { success: false, error: "Partner must complete a registered player profile first." };
+    }
+    if (partner._id === registeredPlayer._id) {
       return { success: false, error: "A tournament team must contain two different players." };
     }
-
-    const p1 = await findExistingPlayer(p1Email, p1Phone, p1LegacyEmail, p1LegacyPhone);
-    let p1Id: Id<"players">;
-
-    if (p1) {
-      p1Id = p1._id;
-      if (await isPlayerInTournament(p1Id)) {
-        return { success: false, error: `${args.player1.firstName} is already registered for this tournament.` };
-      }
-    } else {
-      p1Id = await ctx.db.insert("players", {
-        tenantId: args.tenantId,
-        firstName: p1FirstName,
-        lastName: p1LastName,
-        skillSource: "manual",
-        manualSkillLevel: args.skillTier,
-        email: p1Email,
-        phone: p1Phone,
-        optIn: args.player1.optIn,
-        createdAt: Date.now(),
-      });
+    if (await isPlayerInTournament(partner._id)) {
+      return { success: false, error: "Partner is already registered for this tournament." };
     }
 
-    // Resolve or create Player 2
-    const p2 = await findExistingPlayer(p2Email, p2Phone, p2LegacyEmail, p2LegacyPhone);
-    let p2Id: Id<"players">;
-
-    if (p2) {
-      p2Id = p2._id;
-      if (await isPlayerInTournament(p2Id)) {
-        return { success: false, error: `${args.player2.firstName} is already registered for this tournament.` };
-      }
-    } else {
-      p2Id = await ctx.db.insert("players", {
-        tenantId: args.tenantId,
-        firstName: p2FirstName,
-        lastName: p2LastName,
-        skillSource: "manual",
-        manualSkillLevel: args.skillTier,
-        email: p2Email,
-        phone: p2Phone,
-        optIn: args.player2.optIn,
-        createdAt: Date.now(),
-      });
-    }
-
-    if (p1Id === p2Id) {
-      return { success: false, error: "A tournament team must contain two different players." };
-    }
-
-    // Create Tournament Entrant
     const entrantId = await ctx.db.insert("tournamentEntrants", {
       tournamentId: args.tournamentId,
-      name: args.teamName.trim(),
-      player1Id: p1Id,
-      player2Id: p2Id,
+      name: teamName,
+      player1Id: registeredPlayer._id,
+      player2Id: partner._id,
       skillTier: args.skillTier,
       createdAt: Date.now(),
     });

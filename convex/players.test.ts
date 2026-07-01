@@ -220,41 +220,61 @@ describe("Players", () => {
   });
 
   describe("registerTournamentTeam", () => {
-    // NOTE: registerTournamentTeam hardening is Task 3.5 scope (it creates
-    // accountless players from public registration). It is intentionally
-    // left unauthenticated here and tested only for its existing behavior.
-    test("rejects a team that resolves both slots to the same player", async () => {
+    const registrationArgs = (tenantId: Id<"tenants">, tournamentId: Id<"tournaments">) => ({
+      tenantId,
+      tournamentId,
+      teamName: "Registered Team",
+      skillTier: "Novice" as const,
+      player1: {
+        firstName: "Current",
+        lastName: "Player",
+        email: "current@example.com",
+      },
+      player2: {
+        firstName: "Partner",
+        lastName: "Player",
+        email: "partner@example.com",
+      },
+    });
+
+    test("rejects unauthenticated tournament registration", async () => {
       const t = convexTest(schema, modules);
       const tenantId = await bootstrapTenantWithMembership(t, {
-        tokenIdentifier: "https://api.workos.com|owner-reg",
+        tokenIdentifier: "https://api.workos.com|owner-reg-unauth",
         role: "owner",
       });
       const tournamentId = await seedTournament(t, tenantId);
-      await seedPlayer(t, tenantId, {
-        firstName: "Same",
-        lastName: "Player",
-        email: "same@example.com",
-      });
 
-      const result = await t.mutation(api.players.registerTournamentTeam, {
-        tenantId: tenantId as any,
-        tournamentId: tournamentId as any,
-        teamName: "Duplicate Team",
-        skillTier: "Novice",
-        player1: {
-          firstName: "Same",
-          lastName: "Player",
-          email: "same@example.com",
-        },
-        player2: {
-          firstName: "Same",
-          lastName: "Player",
-          email: " SAME@example.com ",
-        },
-      });
+      await expect(
+        t.mutation(
+          api.players.registerTournamentTeam,
+          registrationArgs(tenantId, tournamentId),
+        ),
+      ).rejects.toThrow(/UNAUTHENTICATED/);
+    });
 
-      expect(result.success).toBe(false);
-      expect((result as any).error).toMatch(/different players/i);
+    test("fails closed without an account-backed player profile and creates no players", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|player-reg-profile";
+      const tenantId = await bootstrapTenantWithMembership(t, {
+        tokenIdentifier: token,
+        role: "player",
+      });
+      const tournamentId = await seedTournament(t, tenantId);
+      const player = asIdentity(t, token, { role: "player" });
+
+      await expect(
+        player.mutation(
+          api.players.registerTournamentTeam,
+          registrationArgs(tenantId, tournamentId),
+        ),
+      ).rejects.toThrow(/PROFILE_REQUIRED/);
+
+      const counts = await t.run(async (ctx) => ({
+        players: (await ctx.db.query("players").take(10)).length,
+        entrants: (await ctx.db.query("tournamentEntrants").take(10)).length,
+      }));
+      expect(counts).toEqual({ players: 0, entrants: 0 });
     });
   });
 

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { requireRole } from "./lib/authz";
 
 // Helper structure for bracket generation
 type EntrantMinimal = {
@@ -16,6 +17,47 @@ type RoundRobinMatch = {
 };
 
 const BYE_ID = "BYE";
+const TOURNAMENT_ADMIN_ROLES = ["owner", "game_master"] as const;
+const MAX_TOURNAMENTS = 100;
+const MAX_TOURNAMENT_TEAMS = 100;
+const MAX_TOURNAMENT_MATCHES = 500;
+
+function toPublicTournament(tournament: Doc<"tournaments">) {
+  return {
+    _id: tournament._id,
+    name: tournament.name,
+    date: tournament.date,
+    location: tournament.location,
+    status: tournament.status,
+    format: tournament.format,
+  };
+}
+
+function toPublicMatch(
+  match: Doc<"tournamentMatches">,
+  names: {
+    entrant1Name: string | null;
+    entrant2Name: string | null;
+    winnerName: string | null;
+  },
+) {
+  return {
+    _id: match._id,
+    entrant1Id: match.entrant1Id,
+    entrant2Id: match.entrant2Id,
+    courtName: match.courtName,
+    score1: match.score1,
+    score2: match.score2,
+    status: match.status,
+    roundNumber: match.roundNumber,
+    matchOrder: match.matchOrder,
+    winnerId: match.winnerId,
+    skillTier: match.skillTier,
+    bracketStage: match.bracketStage,
+    isIfNecessary: match.isIfNecessary,
+    ...names,
+  };
+}
 
 function requiredName(value: string) {
   const trimmed = value.trim();
@@ -31,11 +73,12 @@ function requiredName(value: string) {
 export const listByTenant = query({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, args) => {
+    await requireRole(ctx, args.tenantId, TOURNAMENT_ADMIN_ROLES);
     return await ctx.db
       .query("tournaments")
       .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
       .order("desc")
-      .collect();
+      .take(MAX_TOURNAMENTS);
   },
 });
 
@@ -45,12 +88,15 @@ export const listByTenant = query({
 export const getActiveTournament = query({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const tenant = await ctx.db.get(args.tenantId);
+    if (!tenant || tenant.status !== "active") return null;
+    const tournament = await ctx.db
       .query("tournaments")
       .withIndex("by_tenantId_and_status", (q) =>
         q.eq("tenantId", args.tenantId).eq("status", "registration_open")
       )
       .first();
+    return tournament ? toPublicTournament(tournament) : null;
   },
 });
 
@@ -60,7 +106,11 @@ export const getActiveTournament = query({
 export const getById = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.tournamentId);
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) return null;
+    const tenant = await ctx.db.get(tournament.tenantId);
+    if (!tenant || tenant.status !== "active") return null;
+    return toPublicTournament(tournament);
   },
 });
 
@@ -71,10 +121,15 @@ export const getById = query({
 export const getRegisteredTeams = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) return [];
+    const tenant = await ctx.db.get(tournament.tenantId);
+    if (!tenant || tenant.status !== "active") return [];
+
     const entrants = await ctx.db
       .query("tournamentEntrants")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
-      .collect();
+      .take(MAX_TOURNAMENT_TEAMS);
 
     return await Promise.all(
       entrants.map(async (entrant) => {
@@ -82,6 +137,8 @@ export const getRegisteredTeams = query({
           ctx.db.get(entrant.player1Id),
           ctx.db.get(entrant.player2Id),
         ]);
+        const player1 = p1?.tenantId === tournament.tenantId ? p1 : null;
+        const player2 = p2?.tenantId === tournament.tenantId ? p2 : null;
         return {
           id: entrant._id,
           name: entrant.name,
@@ -89,8 +146,8 @@ export const getRegisteredTeams = query({
           seed: entrant.seed,
           createdAt: entrant.createdAt,
           players: [
-            p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
-            p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
+            player1 ? `${player1.firstName} ${player1.lastName}` : "Unknown Player",
+            player2 ? `${player2.firstName} ${player2.lastName}` : "Unknown Player",
           ],
         };
       })
@@ -753,6 +810,8 @@ export const generateBracket = mutation({
     if (!tournament) {
       return { success: false, error: "Tournament not found." };
     }
+    await requireRole(ctx, tournament.tenantId, TOURNAMENT_ADMIN_ROLES);
+
     if (tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
@@ -854,6 +913,8 @@ export const createTournament = mutation({
     location: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireRole(ctx, args.tenantId, TOURNAMENT_ADMIN_ROLES);
+
     const name = requiredName(args.name);
     if (!name) {
       return { success: false, error: "Tournament name is required." };
@@ -894,6 +955,8 @@ export const updateTournamentStatus = mutation({
     if (!tournament) {
       return { success: false, error: "Tournament not found." };
     }
+    await requireRole(ctx, tournament.tenantId, TOURNAMENT_ADMIN_ROLES);
+
     if (tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
@@ -921,6 +984,8 @@ export const updateTeamSeed = mutation({
     if (!tournament) {
       return { success: false, error: "Tournament not found." };
     }
+    await requireRole(ctx, tournament.tenantId, TOURNAMENT_ADMIN_ROLES);
+
     if (tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
@@ -972,11 +1037,16 @@ export const updateTeamSeed = mutation({
 export const getTournamentBracket = query({
   args: { tournamentId: v.id("tournaments") },
   handler: async (ctx, args) => {
+    const tournament = await ctx.db.get(args.tournamentId);
+    if (!tournament) return [];
+    const tenant = await ctx.db.get(tournament.tenantId);
+    if (!tenant || tenant.status !== "active") return [];
+
     const matches = await ctx.db
       .query("tournamentMatches")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
       .order("asc")
-      .collect();
+      .take(MAX_TOURNAMENT_MATCHES);
 
     const sortedMatches = [...matches].sort((a, b) => {
       if (a.roundNumber !== b.roundNumber) return a.roundNumber - b.roundNumber;
@@ -990,12 +1060,11 @@ export const getTournamentBracket = query({
           match.entrant2Id ? ctx.db.get(match.entrant2Id) : null,
           match.winnerId ? ctx.db.get(match.winnerId) : null,
         ]);
-        return {
-          ...match,
+        return toPublicMatch(match, {
           entrant1Name: entrant1?.name ?? null,
           entrant2Name: entrant2?.name ?? null,
           winnerName: winner?.name ?? null,
-        };
+        });
       })
     );
 
@@ -1075,11 +1144,15 @@ export const getTournamentView = query({
     if (!tournament || tournament.tenantId !== args.tenantId) {
       return null;
     }
+    const tenant = await ctx.db.get(tournament.tenantId);
+    if (!tenant || tenant.status !== "active") return null;
 
-    const entrants = await ctx.db
+    const entrantRows = await ctx.db
       .query("tournamentEntrants")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
-      .collect();
+      .take(MAX_TOURNAMENT_TEAMS + 1);
+    const entrantsTruncated = entrantRows.length > MAX_TOURNAMENT_TEAMS;
+    const entrants = entrantRows.slice(0, MAX_TOURNAMENT_TEAMS);
 
     const teams = await Promise.all(
       entrants.map(async (entrant) => {
@@ -1087,6 +1160,8 @@ export const getTournamentView = query({
           ctx.db.get(entrant.player1Id),
           ctx.db.get(entrant.player2Id),
         ]);
+        const player1 = p1?.tenantId === tournament.tenantId ? p1 : null;
+        const player2 = p2?.tenantId === tournament.tenantId ? p2 : null;
         return {
           id: entrant._id,
           name: entrant.name,
@@ -1094,17 +1169,19 @@ export const getTournamentView = query({
           seed: entrant.seed,
           createdAt: entrant.createdAt,
           players: [
-            p1 ? `${p1.firstName} ${p1.lastName}` : "Unknown Player",
-            p2 ? `${p2.firstName} ${p2.lastName}` : "Unknown Player",
+            player1 ? `${player1.firstName} ${player1.lastName}` : "Unknown Player",
+            player2 ? `${player2.firstName} ${player2.lastName}` : "Unknown Player",
           ],
         };
       })
     );
 
-    const allMatches = await ctx.db
+    const matchRows = await ctx.db
       .query("tournamentMatches")
       .withIndex("by_tournament", (q) => q.eq("tournamentId", args.tournamentId))
-      .collect();
+      .take(MAX_TOURNAMENT_MATCHES + 1);
+    const matchesTruncated = matchRows.length > MAX_TOURNAMENT_MATCHES;
+    const allMatches = matchRows.slice(0, MAX_TOURNAMENT_MATCHES);
 
     const sortedMatches = [...allMatches].sort((a, b) => {
       if (a.roundNumber !== b.roundNumber) return a.roundNumber - b.roundNumber;
@@ -1118,12 +1195,11 @@ export const getTournamentView = query({
           match.entrant2Id ? ctx.db.get(match.entrant2Id) : null,
           match.winnerId ? ctx.db.get(match.winnerId) : null,
         ]);
-        return {
-          ...match,
+        return toPublicMatch(match, {
           entrant1Name: entrant1?.name ?? null,
           entrant2Name: entrant2?.name ?? null,
           winnerName: winner?.name ?? null,
-        };
+        });
       })
     );
 
@@ -1144,7 +1220,7 @@ export const getTournamentView = query({
     const completedMatches = allMatches.filter((m) => m.status === "completed").length;
 
     return {
-      tournament,
+      tournament: toPublicTournament(tournament),
       teams,
       bracketRounds,
       summary: {
@@ -1152,6 +1228,7 @@ export const getTournamentView = query({
         completedMatches,
         totalMatches: allMatches.length,
         tiers,
+        truncated: entrantsTruncated || matchesTruncated,
       },
     };
   },
@@ -1173,7 +1250,12 @@ export const recordTournamentScore = mutation({
       return { success: false, error: "Match not found." };
     }
     const tournament = await ctx.db.get(match.tournamentId);
-    if (!tournament || tournament.tenantId !== args.tenantId) {
+    if (!tournament) {
+      return { success: false, error: "Tournament not found." };
+    }
+    await requireRole(ctx, tournament.tenantId, TOURNAMENT_ADMIN_ROLES);
+
+    if (tournament.tenantId !== args.tenantId) {
       return { success: false, error: "Tournament workspace mismatch." };
     }
     const scoreValidation = validateScores(match, args.score1, args.score2);

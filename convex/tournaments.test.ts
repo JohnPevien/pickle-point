@@ -1,22 +1,225 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { convexTest } from "convex-test";
+import { convexTest, type TestConvex } from "convex-test";
 import { expect, test, describe } from "vitest";
 import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+type TestInstance = TestConvex<typeof schema>;
+
+const ADMIN_TOKEN = "tournament_admin_token";
+const ADMIN_ORG_ID = "org_tournament_tests";
+
+function tournamentTest(): TestInstance {
+  return convexTest(schema, modules).withIdentity({
+    tokenIdentifier: ADMIN_TOKEN,
+    issuer: "https://api.workos.com",
+    organization_id: ADMIN_ORG_ID,
+    role: "owner",
+  }) as unknown as TestInstance;
+}
 
 describe("Tournaments", () => {
-  async function seedTenant(t: ReturnType<typeof convexTest>) {
-    return await t.mutation(internal.tenants.seed, {
+  async function seedTenant(t: TestInstance) {
+    const tenantId = await t.mutation(internal.tenants.seed, {
       name: "Test Club",
       contactEmail: "gm@testclub.com",
     });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(tenantId, { workosOrganizationId: ADMIN_ORG_ID });
+      const existingUser = await ctx.db
+        .query("users")
+        .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", ADMIN_TOKEN))
+        .first();
+      if (existingUser) return;
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", {
+        tokenIdentifier: ADMIN_TOKEN,
+        email: "admin@testclub.com",
+        tenantId,
+        createdAt: now,
+      });
+      await ctx.db.insert("tenantMemberships", {
+        tenantId,
+        userId,
+        role: "owner",
+        status: "active",
+        workosOrganizationMembershipId: "mem_tournament_admin",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    return tenantId;
   }
 
+  async function seedRoleActor(
+    t: TestInstance,
+    tenantId: Id<"tenants">,
+    role: "owner" | "game_master" | "player",
+    tokenIdentifier: string,
+    organizationId = ADMIN_ORG_ID,
+  ): Promise<TestInstance> {
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", {
+        tokenIdentifier,
+        email: `${tokenIdentifier}@testclub.com`,
+        tenantId,
+        createdAt: now,
+      });
+      await ctx.db.insert("tenantMemberships", {
+        tenantId,
+        userId,
+        role,
+        status: "active",
+        workosOrganizationMembershipId: `mem_${tokenIdentifier}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    return t.withIdentity({
+      tokenIdentifier,
+      issuer: "https://api.workos.com",
+      organization_id: organizationId,
+      role,
+    }) as unknown as TestInstance;
+  }
+
+  async function seedAuthorizationFixture() {
+    const base = convexTest(schema, modules);
+    const tenantId = await seedTenant(base);
+    const gameMaster = await seedRoleActor(base, tenantId, "game_master", "tournament_gm");
+    const playerActor = await seedRoleActor(base, tenantId, "player", "tournament_player");
+
+    const otherTenantId = await base.run(async (ctx) =>
+      ctx.db.insert("tenants", {
+        name: "Other Club",
+        slug: "other-tournament-club",
+        timezone: "Asia/Manila",
+        workosOrganizationId: "org_other_tournament",
+        status: "active",
+        contactEmail: "other-tournament@club.com",
+        createdAt: Date.now(),
+      }),
+    );
+    const crossTenantOwner = await seedRoleActor(
+      base,
+      otherTenantId,
+      "owner",
+      "other_tournament_owner",
+      "org_other_tournament",
+    );
+
+    const tournamentId = await base.run(async (ctx) =>
+      ctx.db.insert("tournaments", {
+        tenantId,
+        name: "Authorization Cup",
+        date: Date.now(),
+        status: "registration_open",
+        format: "single_elimination",
+        createdAt: Date.now(),
+      }),
+    );
+    const playerIds = await Promise.all(
+      ["A", "B", "C", "D"].map((suffix) => seedPlayer(base, tenantId, suffix)),
+    );
+    const entrant1Id = await seedEntrant(
+      base,
+      tournamentId,
+      playerIds[0],
+      playerIds[1],
+      "Team One",
+      { seed: 1 },
+    );
+    const entrant2Id = await seedEntrant(
+      base,
+      tournamentId,
+      playerIds[2],
+      playerIds[3],
+      "Team Two",
+      { seed: 2 },
+    );
+    const matchId = await base.run(async (ctx) =>
+      ctx.db.insert("tournamentMatches", {
+        tournamentId,
+        entrant1Id,
+        entrant2Id,
+        status: "pending",
+        roundNumber: 1,
+        matchOrder: 1,
+        skillTier: "Novice",
+        bracketStage: "single_elimination",
+        createdAt: Date.now(),
+      }),
+    );
+
+    return {
+      base,
+      gameMaster,
+      playerActor,
+      crossTenantOwner,
+      tenantId,
+      tournamentId,
+      entrant1Id,
+      matchId,
+    };
+  }
+
+  type AuthorizationFixture = Awaited<ReturnType<typeof seedAuthorizationFixture>>;
+
+  const protectedTournamentOperations = [
+    {
+      name: "createTournament",
+      invoke: (t: TestInstance, fixture: AuthorizationFixture) =>
+        t.mutation(api.tournaments.createTournament, {
+          tenantId: fixture.tenantId,
+          name: "Protected Cup",
+          date: Date.now(),
+          format: "single_elimination",
+        }),
+    },
+    {
+      name: "updateTournamentStatus",
+      invoke: (t: TestInstance, fixture: AuthorizationFixture) =>
+        t.mutation(api.tournaments.updateTournamentStatus, {
+          tenantId: fixture.tenantId,
+          tournamentId: fixture.tournamentId,
+          status: "registration_closed",
+        }),
+    },
+    {
+      name: "updateTeamSeed",
+      invoke: (t: TestInstance, fixture: AuthorizationFixture) =>
+        t.mutation(api.tournaments.updateTeamSeed, {
+          tenantId: fixture.tenantId,
+          tournamentId: fixture.tournamentId,
+          entrantId: fixture.entrant1Id,
+          seed: 3,
+        }),
+    },
+    {
+      name: "generateBracket",
+      invoke: (t: TestInstance, fixture: AuthorizationFixture) =>
+        t.mutation(api.tournaments.generateBracket, {
+          tenantId: fixture.tenantId,
+          tournamentId: fixture.tournamentId,
+        }),
+    },
+    {
+      name: "recordTournamentScore",
+      invoke: (t: TestInstance, fixture: AuthorizationFixture) =>
+        t.mutation(api.tournaments.recordTournamentScore, {
+          tenantId: fixture.tenantId,
+          matchId: fixture.matchId,
+          score1: 11,
+          score2: 7,
+        }),
+    },
+  ] as const;
+
   async function seedTournament(
-    t: ReturnType<typeof convexTest>,
+    t: TestInstance,
     tenantId: any,
     override: Record<string, any> = {}
   ) {
@@ -30,7 +233,7 @@ describe("Tournaments", () => {
     return (result as { tournamentId: Id<"tournaments"> }).tournamentId;
   }
 
-  async function seedPlayer(t: ReturnType<typeof convexTest>, tenantId: any, suffix: string) {
+  async function seedPlayer(t: TestInstance, tenantId: any, suffix: string) {
     return await t.run(async (ctx) => {
       return await ctx.db.insert("players", {
         tenantId,
@@ -44,7 +247,7 @@ describe("Tournaments", () => {
   }
 
   async function seedEntrant(
-    t: ReturnType<typeof convexTest>,
+    t: TestInstance,
     tournamentId: any,
     player1Id: any,
     player2Id: any,
@@ -68,7 +271,7 @@ describe("Tournaments", () => {
   }
 
   async function seedEntrants(
-    t: ReturnType<typeof convexTest>,
+    t: TestInstance,
     tenantId: any,
     tournamentId: any,
     count: number
@@ -82,7 +285,7 @@ describe("Tournaments", () => {
     return entrants;
   }
 
-  async function loadTournamentMatches(t: ReturnType<typeof convexTest>, tournamentId: any) {
+  async function loadTournamentMatches(t: TestInstance, tournamentId: any) {
     return await t.run(async (ctx) => {
       return await ctx.db
         .query("tournamentMatches" as any)
@@ -93,7 +296,7 @@ describe("Tournaments", () => {
 
   describe("createTournament", () => {
     test("creates a tournament with draft status", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
 
       const result = await t.mutation(api.tournaments.createTournament, {
@@ -111,7 +314,7 @@ describe("Tournaments", () => {
     });
 
     test("rejects blank tournament names", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
 
       const result = await t.mutation(api.tournaments.createTournament, {
@@ -130,7 +333,7 @@ describe("Tournaments", () => {
 
   describe("updateTournamentStatus", () => {
     test("allows a valid status transition", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -146,7 +349,7 @@ describe("Tournaments", () => {
     });
 
     test("rejects an invalid status transition", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -161,7 +364,7 @@ describe("Tournaments", () => {
     });
 
     test("returns error for non-existent tournament", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -182,7 +385,7 @@ describe("Tournaments", () => {
 
   describe("updateTeamSeed", () => {
     test("enforces unique positive seeds within each skill tier", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -237,7 +440,7 @@ describe("Tournaments", () => {
 
   describe("generateBracket", () => {
     test("generates round-robin matches for round_robin tournaments", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "round_robin" });
       await seedEntrants(t, tenantId, tournamentId, 4);
@@ -259,7 +462,7 @@ describe("Tournaments", () => {
     });
 
     test("generates a single-elimination skeleton with byes and source refs", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "single_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 3);
@@ -288,7 +491,7 @@ describe("Tournaments", () => {
     });
 
     test("orders generated matches by seed first, then registration order", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "single_elimination" });
 
@@ -343,7 +546,7 @@ describe("Tournaments", () => {
     });
 
     test("generates winners, losers, and grand-final matches for double elimination", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "double_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 4);
@@ -370,7 +573,7 @@ describe("Tournaments", () => {
     });
 
     test("advances elimination winners and creates reset final when needed", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "double_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 4);
@@ -467,7 +670,7 @@ describe("Tournaments", () => {
 
   describe("getTournamentBracket", () => {
     test("returns empty array when no matches exist", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -479,7 +682,7 @@ describe("Tournaments", () => {
     });
 
     test("returns matches grouped by round", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
       const p1 = await seedPlayer(t, tenantId, "A");
@@ -513,7 +716,7 @@ describe("Tournaments", () => {
     });
 
     test("sorts rounds and matches by round number and match order", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
       const p1 = await seedPlayer(t, tenantId, "AA");
@@ -564,7 +767,7 @@ describe("Tournaments", () => {
 
   describe("recordTournamentScore", () => {
     test("records score and sets winner", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
       const p1 = await seedPlayer(t, tenantId, "E");
@@ -603,7 +806,7 @@ describe("Tournaments", () => {
     });
 
     test("allows completed match correction and recomputes downstream pending slots", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "single_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 4);
@@ -661,7 +864,7 @@ describe("Tournaments", () => {
     });
 
     test("blocks score correction when completed downstream matches depend on it", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "single_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 4);
@@ -707,7 +910,7 @@ describe("Tournaments", () => {
     });
 
     test("rejects tied, negative, and entrantless scores", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
       const p1 = await seedPlayer(t, tenantId, "Q");
@@ -769,7 +972,7 @@ describe("Tournaments", () => {
     });
 
     test("returns error for non-existent match", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
       const p1 = await seedPlayer(t, tenantId, "M");
@@ -809,7 +1012,7 @@ describe("Tournaments", () => {
 
   describe("getTournamentView", () => {
     test("returns tournament, teams, bracket rounds, and summary", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "single_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 2);
@@ -834,7 +1037,7 @@ describe("Tournaments", () => {
     });
 
     test("returns null when tenantId does not match tournament", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -859,7 +1062,7 @@ describe("Tournaments", () => {
     });
 
     test("returns null for non-existent tournament", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -876,7 +1079,7 @@ describe("Tournaments", () => {
     });
 
     test("includes entrant names in bracket rounds", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "round_robin" });
       await seedEntrants(t, tenantId, tournamentId, 3);
@@ -897,7 +1100,7 @@ describe("Tournaments", () => {
     });
 
     test("summary tiers lists unique skill tiers from registered teams", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -938,7 +1141,7 @@ describe("Tournaments", () => {
 
   describe("updateTournamentStatus tenant validation", () => {
     test("rejects status update when tenantId does not match", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
 
@@ -967,7 +1170,7 @@ describe("Tournaments", () => {
 
   describe("recordTournamentScore tenant validation", () => {
     test("rejects score when tenantId does not match tournament", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId);
       const p1 = await seedPlayer(t, tenantId, "XV1");
@@ -1015,7 +1218,7 @@ describe("Tournaments", () => {
 
   describe("generateBracket from registration_closed", () => {
     test("allows bracket generation when status is registration_closed", async () => {
-      const t = convexTest(schema, modules);
+      const t = tournamentTest();
       const tenantId = await seedTenant(t);
       const tournamentId = await seedTournament(t, tenantId, { format: "single_elimination" });
       await seedEntrants(t, tenantId, tournamentId, 2);
@@ -1037,6 +1240,134 @@ describe("Tournaments", () => {
       });
 
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe("Task 3.5 authorization and public projections", () => {
+    test("listByTenant rejects unauthenticated, player-role, and cross-tenant callers", async () => {
+      const fixture = await seedAuthorizationFixture();
+
+      await expect(
+        fixture.base.query(api.tournaments.listByTenant, { tenantId: fixture.tenantId }),
+      ).rejects.toThrow(/UNAUTHENTICATED/);
+      await expect(
+        fixture.playerActor.query(api.tournaments.listByTenant, { tenantId: fixture.tenantId }),
+      ).rejects.toThrow(/FORBIDDEN/);
+      await expect(
+        fixture.crossTenantOwner.query(api.tournaments.listByTenant, {
+          tenantId: fixture.tenantId,
+        }),
+      ).rejects.toThrow(/FORBIDDEN/);
+    });
+
+    test.each(protectedTournamentOperations)(
+      "$name rejects unauthenticated, player-role, and cross-tenant callers",
+      async ({ invoke }) => {
+        const fixture = await seedAuthorizationFixture();
+
+        await expect(invoke(fixture.base, fixture)).rejects.toThrow(/UNAUTHENTICATED/);
+        await expect(invoke(fixture.playerActor, fixture)).rejects.toThrow(/FORBIDDEN/);
+        await expect(invoke(fixture.crossTenantOwner, fixture)).rejects.toThrow(/FORBIDDEN/);
+      },
+    );
+
+    test("a Game Master can create, seed, advance, generate, and score a tournament", async () => {
+      const fixture = await seedAuthorizationFixture();
+
+      const created = await fixture.gameMaster.mutation(api.tournaments.createTournament, {
+        tenantId: fixture.tenantId,
+        name: "GM Cup",
+        date: Date.now(),
+        format: "round_robin",
+      });
+      expect(created.success).toBe(true);
+
+      const seeded = await fixture.gameMaster.mutation(api.tournaments.updateTeamSeed, {
+        tenantId: fixture.tenantId,
+        tournamentId: fixture.tournamentId,
+        entrantId: fixture.entrant1Id,
+        seed: 3,
+      });
+      expect(seeded.success).toBe(true);
+
+      const closed = await fixture.gameMaster.mutation(api.tournaments.updateTournamentStatus, {
+        tenantId: fixture.tenantId,
+        tournamentId: fixture.tournamentId,
+        status: "registration_closed",
+      });
+      expect(closed.success).toBe(true);
+
+      const generated = await fixture.gameMaster.mutation(api.tournaments.generateBracket, {
+        tenantId: fixture.tenantId,
+        tournamentId: fixture.tournamentId,
+      });
+      expect(generated.success).toBe(true);
+
+      const generatedMatch = await fixture.base.run(async (ctx) =>
+        ctx.db
+          .query("tournamentMatches")
+          .withIndex("by_tournament", (q) => q.eq("tournamentId", fixture.tournamentId))
+          .first(),
+      );
+      if (!generatedMatch) throw new Error("expected a generated match");
+
+      const scored = await fixture.gameMaster.mutation(api.tournaments.recordTournamentScore, {
+        tenantId: fixture.tenantId,
+        matchId: generatedMatch._id,
+        score1: 11,
+        score2: 7,
+      });
+      expect(scored.success).toBe(true);
+    });
+
+    test("public tournament reads return safe projections and hide disabled workspaces", async () => {
+      const base = convexTest(schema, modules);
+      const tenantId = await seedTenant(base);
+      const tournamentId = await base.run(async (ctx) =>
+        ctx.db.insert("tournaments", {
+          tenantId,
+          name: "Public Cup",
+          date: Date.now(),
+          location: "Center Court",
+          status: "live",
+          format: "single_elimination",
+          createdAt: Date.now(),
+        }),
+      );
+      const p1 = await base.run(async (ctx) =>
+        ctx.db.insert("players", {
+          tenantId,
+          firstName: "Private",
+          lastName: "Player",
+          email: "private@example.com",
+          notes: "never public",
+          skillSource: "manual",
+          manualSkillLevel: "Novice",
+          createdAt: Date.now(),
+        }),
+      );
+      const p2 = await seedPlayer(base, tenantId, "Public");
+      await seedEntrant(base, tournamentId, p1, p2, "Public Team");
+
+      const byId = await base.query(api.tournaments.getById, { tournamentId });
+      const view = await base.query(api.tournaments.getTournamentView, {
+        tenantId,
+        tournamentId,
+      });
+
+      expect(byId).toMatchObject({ _id: tournamentId, name: "Public Cup" });
+      expect(byId).not.toHaveProperty("tenantId");
+      expect(byId).not.toHaveProperty("createdAt");
+      expect(view?.tournament).not.toHaveProperty("tenantId");
+      expect(view?.tournament).not.toHaveProperty("createdAt");
+      expect(JSON.stringify(view)).not.toContain("private@example.com");
+      expect(JSON.stringify(view)).not.toContain("never public");
+
+      await base.run(async (ctx) => ctx.db.patch(tenantId, { status: "disabled" }));
+      expect(await base.query(api.tournaments.getById, { tournamentId })).toBeNull();
+      expect(
+        await base.query(api.tournaments.getTournamentView, { tenantId, tournamentId }),
+      ).toBeNull();
     });
   });
 });
