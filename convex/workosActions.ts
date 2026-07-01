@@ -31,10 +31,9 @@
  *    `organizationId`, `userId`, `id`, `status` ("active"|"inactive"|
  *    "pending"), and `role` as a `RoleResponse` object with `.slug`.
  *  - The membership payload itself does NOT carry email/firstName/
- *    lastName. For `organization_membership.created` we fetch the user
- *    details via the WorkOS API so the local user row has accurate
- *    profile info; otherwise we upsert with empty profile fields and
- *    the next login callback will refresh them.
+ *    lastName. For membership create/update events and authenticated
+ *    callback reconciliation, we resolve profile fields from the WorkOS
+ *    API using a server-derived user id.
  */
 
 import { internalAction } from "./_generated/server";
@@ -266,6 +265,24 @@ async function fetchWorkOSUser(
   }
 }
 
+/**
+ * Resolve profile fields for a WorkOS user id that was derived from a
+ * verified Convex identity. This stays internal and Node-only so browser
+ * callers can never choose which WorkOS user is reconciled or access the
+ * WorkOS API key.
+ */
+export const resolveUserProfile = internalAction({
+  args: { workosUserId: v.string() },
+  handler: async (_ctx, args): Promise<{ email: string | null; fullName: string | null }> => {
+    const workos = new WorkOS(getWorkOSApiKey());
+    const profile = await fetchWorkOSUser(workos, args.workosUserId);
+    return {
+      email: profile.email ?? null,
+      fullName: profile.fullName ?? null,
+    };
+  },
+});
+
 export const ingestSignedWebhook = internalAction({
   args: {
     rawBody: v.string(),
@@ -322,24 +339,22 @@ export const ingestSignedWebhook = internalAction({
 
     const normalized = normalizeVerifiedEvent(verified);
 
-    // 4. Fetch the user profile from WorkOS so the local user row has
-    //    accurate email/name. For a NEW membership (`created`) we MUST
-    //    obtain a verified email before creating the user record; without
-    //    one we fail closed (throw) so WorkOS redelivers the event. We
-    //    never persist a synthetic `<userId>@unknown.workos` address.
-    //    For `updated` events we fetch nothing — the membership payload
-    //    carries role/status only, and the mutation preserves any real
-    //    email already captured at login. Network/auth failures in
-    //    `fetchWorkOSUser` are treated as "no email resolved" so a
-    //    `created` event retries rather than corrupting data.
+    // 4. Fetch the user profile from WorkOS so create and update events
+    //    can provision an unseen local user without inventing an email.
+    //    If an update targets an existing user and the profile lookup is
+    //    unavailable, the mutation preserves the stored profile fields.
+    //    A create without a resolvable email fails closed so WorkOS retries.
     let email: string | undefined;
     let fullName: string | undefined;
-    if (verified.event === "organization_membership.created") {
+    if (
+      verified.event === "organization_membership.created" ||
+      verified.event === "organization_membership.updated"
+    ) {
       const workos = new WorkOS(getWorkOSApiKey());
       const user = await fetchWorkOSUser(workos, normalized.userId);
       email = user.email;
       fullName = user.fullName;
-      if (!email) {
+      if (verified.event === "organization_membership.created" && !email) {
         throw new Error("EMAIL_REQUIRED: cannot create user without a verified WorkOS email");
       }
     }

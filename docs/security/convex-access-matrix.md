@@ -34,7 +34,6 @@ Notation:
 |---|---|---|---|---|---|---|---|
 | `tenants.getById` | query | `public_read` (intended) / **unauthenticated today** | `tenantId: v.string()` | `tenantId` arg → `ctx.db.normalizeId` then `ctx.db.get` | `requireTenantMembership` for private; public projection needs a new safe variant | Returns full tenant doc incl. `contactEmail` to any caller, no auth | 3.1 |
 | `tenants.getCurrentWorkspace` | query | `owner`/`player` (intended) / **token-gated today, no membership check** | `{}` | `identity.tokenIdentifier` → user → `user.tenantId` | `requireTenantMembership(ctx, tenantId)` | Returns `{ user, tenant }` incl. `user.email`, `tenant.contactEmail` | 3.1 |
-| `tenants.createWorkspace` | mutation | **REMOVE in Task 2.4** (self-service creation is a non-goal) | `workspaceFieldsValidator` | `identity.tokenIdentifier` → user/tenant | n/a — deleted | Returns `{ tenantId, created }`; creates tenant publicly | 2.4 / 3.1 |
 | `tenants.updateWorkspace` | mutation | `owner` (intended) / **token-gated today, no role check** | `tenantId: v.id("tenants")`, workspace fields | `args.tenantId` compared to `currentUser.user.tenantId` | `requireOwner(ctx, args.tenantId)` | Accepts client `tenantId`; only user-tenant match (not owner role) | 3.1 |
 | `tenants.seed` | internalMutation | `internal` | `name`, colors, `contactEmail` | n/a (dev seed) | internal only | n/a | — (internal, stays internal) |
 | `tenants.getPublicBySlug` | query | `public_read` | `slug: v.string()` | `args.slug` → `by_slug` (returns `null` for non-`active`) | n/a (public projection; no private fields) | Safe projection: slug, name, timezone, contactEmail, optional logo/colors. Omits `workosOrganizationId`, `status` | — (safe by construction) |
@@ -46,7 +45,7 @@ Notation:
 |---|---|---|---|---|---|---|---|
 | `users.getCurrentUser` | query | `player` (intended) / **token-gated today, no membership check** | `{}` | `identity.tokenIdentifier` → `by_tokenIdentifier` | `requireAuthenticatedUser` then membership projection | Returns full user doc incl. `email`, `name`, `tokenIdentifier` | 3.1 (identity) / 1.3 (reconciliation) |
 | `users.getOrCreateUser` | internalMutation | `internal` | `tokenIdentifier`, `email`, `name?`, `tenantId` | `args.tenantId` | internal only (called by trusted reconciliation, Task 1.3) | n/a — internal |
-| `users.reconcileUserAndMembership` | internalMutation | `internal` (Phase 1.3) | `tokenIdentifier`, `workosUserId`, `email`, `fullName?`, `tenantId`, `role`, `workosOrganizationMembershipId?` | Upserts user by `tokenIdentifier` (never by email); upserts membership by (`tenantId`,`userId`) | n/a (internal) — caller is the WorkOS callback handler (Phase 2) | Writes `auditLogs` row tagged `user.reconcile`. Trusts the supplied role claim from WorkOS; preserves explicit local suspensions. | — | 1.3 |
+| `users.reconcileUserAndMembership` | internalMutation | `internal` (Phase 1.3) | `tokenIdentifier`, `workosUserId`, `email?`, `fullName?`, `tenantId`, `role`, `workosOrganizationMembershipId?` | Upserts user by `tokenIdentifier` (never by email); upserts membership by (`tenantId`,`userId`) | n/a (internal) — caller is the WorkOS callback handler (Phase 2) | Writes `auditLogs` row tagged `user.reconcile`. Trusts the supplied role claim from WorkOS; preserves explicit local suspensions. | — | 1.3 |
 
 ## venues.ts
 
@@ -150,9 +149,8 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
   and the various `getById`/`listByTenant` queries return full docs including
   `email`, `phone`, `notes`, `optIn`, and WorkOS identity. Phase 3 splits safe
   public projections; Phase 4.6 adds collision-aware display names.
-- **`tenants.createWorkspace`** is removed in Task 2.4 (self-service creation
-  is a locked non-goal); it is inventoried here only because it still exists in
-  the baseline.
+- **`tenants.createWorkspace`** was removed in Task 2.4. Tenant creation is
+  limited to internal bootstrap functions.
 
 ## Phase 2 additions
 
@@ -160,7 +158,8 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
 |---|---|---|---|---|---|---|---|
 | `tenants.findByOrgId` | internalQuery | `internal` | `workosOrganizationId: v.string()` | `args.workosOrganizationId` → `by_workosOrganizationId` | n/a (internal) | tenant doc | — |
 | `tenants.findBySlug` | internalQuery | `internal` | `slug: v.string()` | `args.slug` → `by_slug` | n/a (internal) | tenant doc | — |
+| `workosActions.resolveUserProfile` | internalAction | `internal` (Node-only WorkOS profile lookup) | `workosUserId` derived from a verified identity or signed webhook | n/a | n/a (server-side only) | WorkOS email and display name only | — |
 | `workosActions.ingestSignedWebhook` | internalAction | `internal` (Node-only signature verification) | `rawBody`, `signatureHeader`, `expectedOrganizationId` | organization id is matched server-side against canonical `WORKOS_ORGANIZATION_ID` | n/a (server-side, called from `http.ts`) | none — returns `{ status, eventId }` only | — |
 | `workosSync.recordEvent` | internalMutation | `internal` | normalized receipt payload | n/a (writes `workosWebhookReceipts`) | n/a (internal) | none — receipt row only | — |
 | `workosSync.applyEvent` | internalMutation | `internal` | normalized membership event | server-resolved tenant via `by_workosOrganizationId` | n/a (internal; trusted server-side data only) | none — applies user/membership upsert + audit | — |
-| `callback.reconcileWorkosCallback` | action | `player` (token-authenticated; derives identity server-side) | **none** (`args: {}`) | identity → `organization_id`/`org_id` claim → `internal.tenants.findByOrgId`; personal-account fallback → `PICKLE_POINT_TENANT_SLUG` via `findBySlug` | Convex validates the WorkOS JWT (issuer/audience via `auth.config.ts`); `ctx.auth.getUserIdentity()` is the sole source of user/org/role/email. No user/org/tenant/role is accepted as an argument. | none — returns coarse `{ status }` only | — |
+| `callback.reconcileWorkosCallback` | action | `player` (token-authenticated; derives identity server-side) | **none** (`args: {}`) | identity → `organization_id`/`org_id` claim → `internal.tenants.findByOrgId`; personal-account fallback → `PICKLE_POINT_TENANT_SLUG` via `findBySlug` | Convex validates the WorkOS JWT; user/org/role come from `ctx.auth.getUserIdentity()`, while profile fields are fetched server-side from WorkOS using the verified subject. No user/org/tenant/role/profile field is accepted as an argument. | none — returns coarse `{ status }` only | — |

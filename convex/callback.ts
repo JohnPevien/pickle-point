@@ -10,9 +10,10 @@
  *
  * Security invariants:
  *  - The action takes **no arguments**. WorkOS user id, organization id,
- *    role, tenant id, and email are derived exclusively from the
- *    authenticated identity — never accepted from the caller. This removes
- *    the old deploy-key HTTP bridge and manual JWT verification.
+ *    and role are derived from the authenticated identity; profile fields
+ *    are resolved server-side from WorkOS using that verified subject.
+ *    None are accepted from the caller. This removes the old deploy-key
+ *    HTTP bridge and manual JWT verification.
  *  - The tenant is resolved server-side from the canonical WorkOS
  *    organization id (or the canonical slug in dev), never from a
  *    browser-supplied tenant id or slug.
@@ -33,8 +34,8 @@ export type ReconcileStatus =
   // No authenticated identity attached to the call. The callback route
   // treats any non-`ok` status as a failure and routes to support.
   | "unauthenticated"
-  // The authenticated session has no usable (verified, non-empty) email.
-  // Fail safely so the next login retries once AuthKit surfaces one.
+  // Neither the authenticated claims nor the server-side WorkOS profile
+  // supplied a usable email. Fail safely so a later login can retry.
   | "email_required"
   // The identity's organization claim targets a different organization
   // than the canonical one configured for this deployment.
@@ -86,9 +87,9 @@ export const reconcileWorkosCallback = action({
     // `subject` is the WorkOS user id; `tokenIdentifier` is the canonical
     // stable key Convex uses for identity linkage.
     const workosUserId = identity.subject;
-    const email = identity.email;
+    const identityEmail = identity.email;
     const emailVerified = identity.emailVerified;
-    const fullName =
+    let fullName =
       [identity.givenName, identity.familyName]
         .filter((part): part is string => typeof part === "string" && part.length > 0)
         .join(" ")
@@ -101,11 +102,35 @@ export const reconcileWorkosCallback = action({
     // create a stable user projection. An explicitly unverified email
     // (`emailVerified === false`) is rejected; an absent claim does not
     // block, since not every WorkOS token carries `email_verified`.
-    const hasUsableEmail =
-      typeof email === "string" &&
-      email.length > 0 &&
-      emailVerified !== false;
-    if (!hasUsableEmail) {
+    if (
+      typeof identityEmail === "string" &&
+      identityEmail.length > 0 &&
+      emailVerified === false
+    ) {
+      return { status: "email_required" };
+    }
+
+    let email =
+      typeof identityEmail === "string" &&
+      identityEmail.length > 0 &&
+      emailVerified !== false
+        ? identityEmail
+        : undefined;
+
+    // Standard AuthKit access tokens carry identity and organization
+    // claims, but not profile fields such as email/name. Resolve those
+    // server-side from the verified WorkOS subject rather than accepting
+    // them as callback arguments from the browser.
+    if (!email) {
+      const profile: { email: string | null; fullName: string | null } =
+        await ctx.runAction(internal.workosActions.resolveUserProfile, {
+          workosUserId,
+        });
+      email = profile.email ?? undefined;
+      fullName = profile.fullName ?? fullName;
+    }
+
+    if (!email) {
       return { status: "email_required" };
     }
 

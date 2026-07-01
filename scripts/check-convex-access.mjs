@@ -15,8 +15,12 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const convexDir = join(repoRoot, "convex");
-const matrixPath = join(repoRoot, "docs", "security", "convex-access-matrix.md");
+const convexDir = process.env.CONVEX_ACCESS_SOURCE_DIR
+  ? resolve(process.env.CONVEX_ACCESS_SOURCE_DIR)
+  : join(repoRoot, "convex");
+const matrixPath = process.env.CONVEX_ACCESS_MATRIX_PATH
+  ? resolve(process.env.CONVEX_ACCESS_MATRIX_PATH)
+  : join(repoRoot, "docs", "security", "convex-access-matrix.md");
 
 // Registered function decorators. internal* variants are included so the
 // matrix accounts for private/internal functions too.
@@ -67,11 +71,13 @@ const matrix = readFileSync(matrixPath, "utf8");
 const files = listTsFiles(convexDir);
 
 const missing = [];
+const registered = new Set();
 let total = 0;
 for (const file of files) {
   const rel = file.slice(convexDir.length + 1).replace(/\.ts$/, "");
   for (const name of extractFunctions(file)) {
     total++;
+    registered.add(`${rel}.${name}`);
     // Each matrix row references the function as `file.name` (backticked).
     // Require the dotted form so a name shared across modules (e.g.
     // `listByTenant`, `getById`) cannot satisfy another module's row.
@@ -82,11 +88,27 @@ for (const file of files) {
   }
 }
 
-if (missing.length > 0) {
-  console.error(
-    `check-convex-access: ${missing.length} unclassified function(s) of ${total}:`
-  );
-  for (const m of missing) console.error(`  ${m}`);
+// Read only first-column backticked table entries. This avoids treating
+// prose references as classifications while detecting rows left behind
+// after a function is renamed or deleted.
+const classified = new Set(
+  [...matrix.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)].map((match) => match[1]),
+);
+const stale = [...classified].filter((name) => !registered.has(name)).sort();
+
+if (missing.length > 0 || stale.length > 0) {
+  if (missing.length > 0) {
+    console.error(
+      `check-convex-access: ${missing.length} unclassified function(s) of ${total}:`
+    );
+    for (const m of missing) console.error(`  ${m}`);
+  }
+  if (stale.length > 0) {
+    console.error(
+      `check-convex-access: ${stale.length} stale classification(s):`
+    );
+    for (const name of stale) console.error(`  ${name}`);
+  }
   process.exit(1);
 }
 

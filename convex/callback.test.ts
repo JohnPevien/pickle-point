@@ -1,10 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
+
+vi.mock("@workos-inc/node", () => ({
+  WorkOS: class {
+    userManagement = {
+      getUser: async (userId: string) => ({
+        id: userId,
+        email: `${userId}@workos.example`,
+        emailVerified: true,
+        firstName: "Grace",
+        lastName: "Hopper",
+      }),
+    };
+  },
+}));
 
 /**
  * Phase 2.3 callback reconciliation action.
@@ -21,12 +35,14 @@ describe("callback.reconcileWorkosCallback", () => {
   beforeEach(() => {
     process.env.WORKOS_ORGANIZATION_ID = "org_callback";
     process.env.PICKLE_POINT_TENANT_SLUG = "callback-club";
+    process.env.WORKOS_API_KEY = "test_api_key";
   });
 
   afterEach(() => {
     // Restore a clean env between files; only delete keys we set here.
     delete process.env.WORKOS_ORGANIZATION_ID;
     delete process.env.PICKLE_POINT_TENANT_SLUG;
+    delete process.env.WORKOS_API_KEY;
     process.env = { ...originalEnv };
   });
 
@@ -86,6 +102,38 @@ describe("callback.reconcileWorkosCallback", () => {
       ctx.db.query("tenantMemberships").first()
     );
     expect(membership).toMatchObject({ role: "owner", status: "active" });
+  });
+
+  test("resolves the WorkOS profile server-side when a standard access token has no email claim", async () => {
+    const t = convexTest(schema, modules);
+    await seedTenantByOrg(t);
+
+    const authed = t.withIdentity(
+      identityFor("user_standard_token", {
+        email: undefined,
+        emailVerified: undefined,
+        givenName: undefined,
+        familyName: undefined,
+        name: undefined,
+        role: "owner",
+      })
+    );
+
+    const result = await authed.action(api.callback.reconcileWorkosCallback, {});
+    expect(result).toEqual({ status: "ok" });
+
+    const user = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) =>
+          q.eq("workosUserId", "user_standard_token")
+        )
+        .first()
+    );
+    expect(user).toMatchObject({
+      email: "user_standard_token@workos.example",
+      fullName: "Grace Hopper",
+    });
   });
 
   test("maps admin and game_master/gm slugs correctly", async () => {
@@ -169,7 +217,7 @@ describe("callback.reconcileWorkosCallback", () => {
     expect(memberships).toHaveLength(0);
   });
 
-  test("an unverified or missing email returns email_required and writes nothing", async () => {
+  test("an explicitly unverified email returns email_required and writes nothing", async () => {
     const t = convexTest(schema, modules);
     await seedTenantByOrg(t);
 
@@ -178,14 +226,6 @@ describe("callback.reconcileWorkosCallback", () => {
       identityFor("user_unverified", { emailVerified: false })
     );
     expect(await unverified.action(api.callback.reconcileWorkosCallback, {})).toEqual({
-      status: "email_required",
-    });
-
-    // No email claim at all.
-    const noEmail = t.withIdentity(
-      identityFor("user_no_email", { email: undefined, emailVerified: undefined })
-    );
-    expect(await noEmail.action(api.callback.reconcileWorkosCallback, {})).toEqual({
       status: "email_required",
     });
 

@@ -309,6 +309,56 @@ describe("WorkOS webhook sync", () => {
     expect(memberships[0]).toMatchObject({ role: "game_master" });
   });
 
+  test("an updated event can provision an unseen user from the WorkOS profile", async () => {
+    const t = convexTest(schema, modules);
+    await seedTenant(t);
+
+    const updated: WirePayload = {
+      id: "evt_unseen_update",
+      event: "organization_membership.updated",
+      data: {
+        ...membershipCreatedPayload().data,
+        id: "wos_membership_unseen",
+        user_id: "user_unseen_update",
+        role: { slug: "game_master" },
+      },
+    };
+
+    await expect(
+      t.action(internal.workosActions.ingestSignedWebhook, {
+        rawBody: JSON.stringify(updated),
+        signatureHeader: "valid",
+        expectedOrganizationId: "org_unit_test",
+      })
+    ).resolves.toMatchObject({
+      status: "applied",
+      eventId: "evt_unseen_update",
+    });
+
+    const user = await t.run(async (ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) =>
+          q.eq("workosUserId", "user_unseen_update")
+        )
+        .first()
+    );
+    expect(user).toMatchObject({
+      email: "user_unseen_update@example.com",
+      fullName: "Mocked User",
+    });
+
+    const membership = await t.run(async (ctx) =>
+      ctx.db
+        .query("tenantMemberships")
+        .withIndex("by_workosOrganizationMembershipId", (q) =>
+          q.eq("workosOrganizationMembershipId", "wos_membership_unseen")
+        )
+        .first()
+    );
+    expect(membership).toMatchObject({ role: "game_master", status: "active" });
+  });
+
   test("role.slug is read from the WorkOS role object (not flattened string)", async () => {
     // Sanity-check that the deserialization maps role.slug -> "owner"
     // correctly even when only the role object is present.
@@ -511,10 +561,9 @@ describe("WorkOS webhook sync", () => {
     expect(afterCreate?.emailNormalized).toBe("user_email@example.com");
     expect(afterCreate?.fullName).toBe("Mocked User");
 
-    // 2. A role-only `updated` event arrives with no profile fields. The
-    //    action does NOT re-fetch the WorkOS profile on updates, so it
-    //    passes email: undefined. The mutation must preserve the real
-    //    email — never overwrite it with a synthetic placeholder.
+    // 2. A role-only `updated` event arrives with no profile fields. Even
+    //    if profile resolution later yields no email, the mutation must
+    //    preserve the real email — never overwrite it with a placeholder.
     const updated: WirePayload = {
       id: "evt_role_only",
       event: "organization_membership.updated",
