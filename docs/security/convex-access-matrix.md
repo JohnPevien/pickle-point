@@ -22,16 +22,17 @@ notes, WorkOS identity) to any caller. This matrix is the Phase 3 work list.
 owner-only gate, `tenants.updateWorkspace` owner gate, and all four `venues.*` functions
 with resource-derived tenant authority). The public tenant projection
 (`getById`, `getPublicBySlug`) exposes branding only — no `contactEmail`,
-`workosOrganizationId`, or `status`. Task 3.2 has hardened the player and
-statistics surfaces: all six `players.*` functions (admin-only via
-`requireRole`/`requireOwnPlayer`, with resource-derived tenant authority and
-bounded reads; players fail closed with `FORBIDDEN` pending the Task 4.1
-`players.userId` link) and `stats.getLeaderboard` (public projection with an
+`workosOrganizationId`, or `status`. Task 3.2 hardened the player and
+statistics surfaces: the `players.*` admin functions resolve authority from
+the loaded player row via `requireRole`/`requireOwnPlayer` (resource-derived
+tenant, bounded reads), and `requireOwnPlayer` now admits a linked account
+owner directly while still validating trusted WorkOS claims for
+owner/game_master. `stats.getLeaderboard` is a public projection with an
 active-tenant gate, cross-tenant/missing-player exclusion, and a truncation
-flag). Tasks 3.3–3.5 also harden open-play and tournament operations, split
+flag. Tasks 3.3–3.5 harden open-play and tournament operations, split
 safe public projections from administrative reads, and make tournament
-registration fail closed until account-backed player profiles land in Task 4.1.
-Rows marked ✅ are hardened.
+registration require an account-backed player profile via
+`requirePlayerProfile`. Rows marked ✅ are hardened.
 
 Notation:
 
@@ -77,12 +78,14 @@ Notation:
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |
 |---|---|---|---|---|---|---|---|
 | `players.listByTenant` | query | `game_master` (hardened) | `tenantId: v.id("tenants")`, `limit?` | `args.tenantId` | `requireRole(ctx, args.tenantId, ["owner","game_master"])` — throws `AppError` on auth failure | Full player docs (incl. `email`, `phone`, `notes`, `optIn`) returned only to owner/game_master; bounded by `limit` (default/max 500) | ✅ 3.2 |
-| `players.registerTournamentTeam` | mutation | `player` (hardened; fails closed pending Task 4.1) | `tenantId`, `tournamentId`, `teamName`, `skillTier`, legacy `player1`, `player2` | `tournamentId` → `tournament.tenantId`; client `tenantId` is mismatch-only | `requirePlayerProfile(ctx, tournament.tenantId)` | Never creates player rows; returns `PROFILE_REQUIRED` until account-backed profiles exist | ✅ 3.5 |
-| `players.getById` | query | `game_master` (hardened; admin-only pending Task 4.1) | `playerId: v.id("players")` | derived: `playerId` → `player.tenantId` | `requireOwnPlayer(ctx, playerId)` — admin-only; players `FORBIDDEN` (fail-closed until `players.userId`); missing → `RESOURCE_NOT_FOUND` | Full player doc returned only to owner/game_master | ✅ 3.2 |
+| `players.registerTournamentTeam` | mutation | `player` (hardened; requires account profile) | `tenantId`, `tournamentId`, `teamName`, `skillTier`, legacy `player1`, `player2` | `tournamentId` → `tournament.tenantId`; client `tenantId` is mismatch-only | `requirePlayerProfile(ctx, tournament.tenantId)` — resolves the caller's linked account profile or `PROFILE_REQUIRED` | Never creates player rows; the account profile is always slot one | ✅ 3.5 |
+| `players.getById` | query | `game_master` / linked player (hardened) | `playerId: v.id("players")` | derived: `playerId` → `player.tenantId` | `requireOwnPlayer(ctx, playerId)` — linked account owner admitted directly; otherwise owner/game_master through trusted WorkOS claims; players `FORBIDDEN`; missing → `RESOURCE_NOT_FOUND` | Full player doc returned only to owner/game_master or the linked player | ✅ 3.2 |
 | `players.createPlayer` | mutation | `game_master` (hardened) | `tenantId`, names, skill, contact, gender, avatar, notes, optIn | `args.tenantId` (checked before insert) | `requireRole(ctx, args.tenantId, ["owner","game_master"])` | none — returns `{ success, playerId? }` only; only `AppError` → `{success:false, error}` | ✅ 3.2 |
-| `players.updatePlayer` | mutation | `game_master` (hardened; admin-only pending Task 4.1) | `tenantId`, `playerId`, many optional fields | derived: `playerId` → `player.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireOwnPlayer(ctx, playerId)` — admin-only; players `FORBIDDEN` | none — returns `{ success }` only; patch never sets `_id`/`tenantId`/`createdAt`; no identity-link arg exists | ✅ 3.2 |
-| `players.deletePlayer` | mutation | `game_master` (hardened; admin-only pending Task 4.1) | `tenantId`, `playerId` | derived: `playerId` → `player.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireOwnPlayer(ctx, playerId)` — admin-only; players `FORBIDDEN` | none — returns `{ success }` only | ✅ 3.2 |
-| `players.getPlayerStats` | query | `game_master` (hardened; admin-only pending Task 4.1) | `playerId`, `windowDays?` | derived: `playerId` → `player.tenantId` | `requireOwnPlayer(ctx, playerId)` — admin-only; players `FORBIDDEN` | none — returns aggregate `{ wins, losses, pointsFor, pointsAgainst, truncated }` only | ✅ 3.2 |
+| `players.updatePlayer` | mutation | `game_master` / linked player (hardened) | `tenantId`, `playerId`, many optional fields | derived: `playerId` → `player.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireOwnPlayer(ctx, playerId)` — linked owner or admin via trusted WorkOS claims; unrelated players `FORBIDDEN` | none — returns `{ success }` only; patch never sets `_id`/`tenantId`/`createdAt`; no identity-link arg exists | ✅ 3.2 |
+| `players.deletePlayer` | mutation | `game_master` / linked player (hardened) | `tenantId`, `playerId` | derived: `playerId` → `player.tenantId`; client `tenantId` only surfaces a stale-client mismatch | `requireOwnPlayer(ctx, playerId)` — linked owner or admin; unrelated players `FORBIDDEN` | none — returns `{ success }` only | ✅ 3.2 |
+| `players.getPlayerStats` | query | `game_master` / linked player (hardened) | `playerId`, `windowDays?` | derived: `playerId` → `player.tenantId` | `requireOwnPlayer(ctx, playerId)` — linked owner or admin; unrelated players `FORBIDDEN` | none — returns aggregate `{ wins, losses, pointsFor, pointsAgainst, truncated }` only | ✅ 3.2 |
+| `players.joinWorkspace` | mutation | `player` (authenticated self-service) | `slug` | `slug` → `tenants.by_slug` → `tenant._id` (server-side; browser never supplies tenantId) | `requireAuthenticatedUser(ctx)` — verified user projected by login reconciliation; disabled/unknown/blank slug → `RESOURCE_NOT_FOUND`; suspended membership → `MEMBERSHIP_SUSPENDED` | none — returns `{ tenantId, membershipId, role, profileComplete }` only; idempotent membership upsert preserves an existing owner/game_master role; a suspended membership is never self-reactivated; never creates a profile | ✅ 4.2 |
+| `players.completeMyProfile` | mutation | `player` (authenticated self-service) | `slug`, `fullName`, `nickname` | `slug` → `tenants.by_slug` → `tenant._id` (server-side; browser never supplies tenantId); disabled/unknown/blank slug → `RESOURCE_NOT_FOUND` | `requireTenantMembership(ctx, tenant._id)` then trimmed non-empty name validation; `AppError` → `{success:false, error}` | none — returns `{ success, playerId?, profileComplete? }` only; creates exactly one account-backed profile per `(tenantId, userId)` via `by_tenantId_and_userId` (`.unique()`); a linked non-account profile is a conflict; never claims a `legacy_unclaimed` row; arg validator rejects browser-supplied `tenantId`/`userId` | ✅ 4.2 |
 
 ## stats.ts
 
@@ -100,8 +103,8 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
 | `authzProbe.requireTenantMembershipProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requireTenantMembership` | returns `{ role, status }` only | — |
 | `authzProbe.requireRoleProbe` | internalQuery | `internal` (test only) | `tenantId`, `allowedRoles`, `requireTrustedWorkOSClaim?` | `args.tenantId` | `requireRole` | returns `{ role }` only | — |
 | `authzProbe.requireOwnerProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requireOwner` | returns `{ role }` only | — |
-| `authzProbe.requirePlayerProfileProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requirePlayerProfile` (currently fails closed pending Task 4.1) | none — fails with `PROFILE_REQUIRED` | — |
-| `authzProbe.requireOwnPlayerProbe` | internalQuery | `internal` (test only) | `playerId: v.id("players")` | `playerId` → `player.tenantId` | `requireOwnPlayer` | none — fails with `FORBIDDEN` for non-admins / cross-tenant | — |
+| `authzProbe.requirePlayerProfileProbe` | internalQuery | `internal` (test only) | `tenantId: v.id("tenants")` | `args.tenantId` | `requirePlayerProfile` — resolves the caller's linked account profile via `by_tenantId_and_userId` (`.unique()`); legacy/unlinked → `PROFILE_REQUIRED` | returns `{ id }` only | — |
+| `authzProbe.requireOwnPlayerProbe` | internalQuery | `internal` (test only) | `playerId: v.id("players")` | `playerId` → `player.tenantId` | `requireOwnPlayer` — linked account owner or admin via trusted WorkOS claims | returns `{ tenantId }` only; `FORBIDDEN` for unrelated players, `MEMBERSHIP_SUSPENDED` for suspended members | — |
 
 ## migrations/usersToMemberships.ts (Phase 1.5)
 
@@ -170,9 +173,10 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
   before using client-supplied IDs. Remaining client `tenantId` arguments are
   compatibility/mismatch checks, never authority sources.
 - **Accountless registration.** `players.registerTournamentTeam` no longer
-  creates player rows and fails closed with `PROFILE_REQUIRED` until Task 4.1.
-  Authenticated Game Masters may still create persistent open-play guests;
-  Task 5.4 replaces those with event-only walk-ins.
+  creates player rows and requires the caller's linked account profile via
+  `requirePlayerProfile` (`PROFILE_REQUIRED` otherwise). Authenticated Game
+  Masters may still create persistent open-play guests; Task 5.4 replaces
+  those with event-only walk-ins.
 - **Public projections.** Public open-play, tournament, and leaderboard reads
   expose bounded display-safe shapes. Administrative reads retain full docs
   behind owner/Game Master authorization. Phase 4.6 adds collision-aware names.

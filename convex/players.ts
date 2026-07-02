@@ -7,6 +7,8 @@ import {
   requireRole,
   requireOwnPlayer,
   requirePlayerProfile,
+  requireAuthenticatedUser,
+  requireTenantMembership,
   AppError,
 } from "./lib/authz";
 import { finiteInt } from "./lib/num";
@@ -189,10 +191,11 @@ export const registerTournamentTeam = mutation({
       return { success: false, error: "Tournament not found." };
     }
 
-    // Tournament enrollment is player-owned. Until Task 4.1 adds the
-    // account-backed `players.userId` link, this fails closed with
-    // PROFILE_REQUIRED. Crucially, no caller-provided contact data can create
-    // a persistent player row anymore.
+    // Tournament enrollment is player-owned: the caller must have an
+    // account-backed player profile linked to their authenticated user
+    // (resolved by `requirePlayerProfile`). No caller-provided contact
+    // data can create a persistent player row — the account profile is
+    // always slot one.
     const registeredPlayer = await requirePlayerProfile(ctx, tournament.tenantId);
 
     if (tournament.tenantId !== args.tenantId) {
@@ -276,11 +279,11 @@ const skillLevelValidator = v.union(
 );
 
 /**
- * Fetches a single player by ID. Task 3.2: authority is derived from the
- * loaded player row (`player.tenantId`) via `requireOwnPlayer`, which admits
- * owner/game_master and rejects players (FORBIDDEN) and unauthenticated
- * callers. Until Task 4.1 wires `players.userId`, player self-service fails
- * closed — there is no way to prove ownership of a player row.
+ * Fetches a single player by ID. Authority is derived from the loaded
+ * player row (`player.tenantId`) via `requireOwnPlayer`, which admits
+ * the linked account owner directly and owner/game_master through the
+ * trusted WorkOS claim path, and rejects unrelated players (FORBIDDEN)
+ * and unauthenticated callers.
  *
  * A missing player throws RESOURCE_NOT_FOUND rather than returning null, so
  * no caller can distinguish "exists but forbidden" from "absent".
@@ -367,13 +370,14 @@ export const createPlayer = mutation({
 });
 
 /**
- * Updates editable player profile fields. Task 3.2: authority is derived
- * from the loaded player row via `requireOwnPlayer` (admin-only; players
- * fail closed with FORBIDDEN until Task 4.1). The client `tenantId` is kept
- * only to surface a stale-client mismatch after authorization. Only
- * `AppError` is converted to `{success:false, error}`; unexpected errors
- * propagate. The patch only ever sets editable profile fields — `tenantId`,
- * `_id`, and `createdAt` are never modified.
+ * Updates editable player profile fields. Authority is derived from
+ * the loaded player row via `requireOwnPlayer`, which admits the linked
+ * account owner and owner/game_master (through trusted WorkOS claims);
+ * unrelated players fail closed with FORBIDDEN. The client `tenantId`
+ * is kept only to surface a stale-client mismatch after authorization.
+ * Only `AppError` is converted to `{success:false, error}`; unexpected
+ * errors propagate. The patch only ever sets editable profile fields —
+ * `tenantId`, `_id`, and `createdAt` are never modified.
  */
 export const updatePlayer = mutation({
   args: {
@@ -461,9 +465,10 @@ export const updatePlayer = mutation({
 
 /**
  * Deletes a player only when no sessions, tournament entries, match history,
- * or stats still reference them. Task 3.2: authority is derived from the
- * loaded player row via `requireOwnPlayer` (admin-only). Only `AppError` is
- * converted to `{success:false, error}`; unexpected errors propagate.
+ * or stats still reference them. Authority is derived from the loaded
+ * player row via `requireOwnPlayer` (linked owner or admin). Only
+ * `AppError` is converted to `{success:false, error}`; unexpected
+ * errors propagate.
  */
 export const deletePlayer = mutation({
   args: { tenantId: v.id("tenants"), playerId: v.id("players") },
@@ -485,9 +490,9 @@ export const deletePlayer = mutation({
 
 /**
  * Aggregates a player's recent stats snapshots over a bounded day window.
- * Task 3.2: authority is derived from the loaded player row via
- * `requireOwnPlayer` (admin-only; players fail closed with FORBIDDEN until
- * Task 4.1). Returns only aggregate counters — no contact/private fields.
+ * Authority is derived from the loaded player row via `requireOwnPlayer`
+ * (linked owner or admin; unrelated players FORBIDDEN). Returns only
+ * aggregate counters — no contact/private fields.
  *
  * Reads are capped at `MAX_PLAYER_STATS_SNAPSHOTS` (ordered newest-first by
  * snapshotDate). If the cap is exceeded, `truncated: true` signals that the
@@ -531,5 +536,263 @@ export const getPlayerStats = query({
       { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 }
     );
     return { ...totals, truncated };
+  },
+});
+
+// -------------------------------------------------------------------------
+// Task 4.2: account-backed player provisioning.
+//
+// `joinWorkspace` and `completeMyProfile` are the authenticated entry
+// points that turn a verified WorkOS user into a tenant member with one
+// account-backed player profile. Invariants:
+// - Identity is ALWAYS derived from the authenticated token via
+//   `requireAuthenticatedUser`. A browser-supplied `userId` is never
+//   accepted (the validators don't even expose such an arg).
+// - The tenant is ALWAYS resolved from its slug server-side; a
+//   browser-supplied tenant id is never authoritative for joining.
+// - Exactly one active membership per (tenantId, userId). An existing
+//   owner/game_master role is PRESERVED — joining never downgrades an
+//   admin to player (an admin who also plays keeps the admin role). A
+//   SUSPENDED membership is never self-reactivated here; it throws
+//   MEMBERSHIP_SUSPENDED (reinstatement flows through WorkOS
+//   reconciliation).
+// - Exactly one account-backed profile per (tenantId, userId), enforced
+//   transactionally through `by_tenantId_and_userId` (read with
+//   `.unique()`).
+// - Legacy `legacy_unclaimed` rows are NEVER auto-matched/claimed by
+//   email, phone, name, or nickname. The account profile is always a
+//   fresh row linked to the authenticated user.
+// - Replay/refresh/double-submit are idempotent and create no duplicates.
+// - Errors are non-enumerating and reuse the stable `AppError` vocabulary.
+// -------------------------------------------------------------------------
+
+/**
+ * Result of joining a workspace. `profileComplete` is true when an
+ * account-backed player profile already exists for this user/tenant, so
+ * the client can route directly to the dashboard instead of the profile
+ * form.
+ */
+type JoinWorkspaceResult = {
+  tenantId: Id<"tenants">;
+  membershipId: Id<"tenantMemberships">;
+  role: "owner" | "game_master" | "player";
+  profileComplete: boolean;
+};
+
+/**
+ * Result of completing a player profile. Returns the account-backed
+ * player id and `profileComplete: true` so the client routes onward.
+ */
+type CompleteMyProfileSuccess = {
+  success: true;
+  playerId: Id<"players">;
+  profileComplete: true;
+};
+
+/**
+ * Join a tenant workspace by its public slug. Creates an idempotent
+ * active `player` membership for the authenticated user (preserving an
+ * existing owner/game_master role), then reports whether a profile is
+ * already on file. The tenant is resolved from its slug — never from a
+ * browser-supplied id — and a disabled/unknown slug fails closed with
+ * RESOURCE_NOT_FOUND without enumerating tenants. A SUSPENDED membership
+ * is never self-reactivated here; it throws MEMBERSHIP_SUSPENDED so the
+ * caller must go through WorkOS reconciliation to be reinstated.
+ */
+export const joinWorkspace = mutation({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args): Promise<JoinWorkspaceResult> => {
+    const user = await requireAuthenticatedUser(ctx);
+
+    // Resolve the tenant strictly from its slug. A disabled or missing
+    // tenant resolves to RESOURCE_NOT_FOUND — the error gives no hint
+    // about which other tenants exist.
+    const trimmedSlug = args.slug.trim();
+    if (!trimmedSlug) {
+      throw new AppError("RESOURCE_NOT_FOUND");
+    }
+    const tenant = await ctx.db
+      .query("tenants")
+      .withIndex("by_slug", (q) => q.eq("slug", trimmedSlug))
+      .first();
+    if (!tenant || tenant.status !== "active") {
+      throw new AppError("RESOURCE_NOT_FOUND");
+    }
+
+    // Idempotent membership upsert by (tenantId, userId). An existing
+    // owner/game_master role is PRESERVED — joining never downgrades an
+    // admin to player. A SUSPENDED membership is never self-reactivated
+    // through this surface (neither a player nor an admin can lift their
+    // own suspension here); reactivation flows through WorkOS
+    // reconciliation. An already-active membership is reused as-is.
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("tenantMemberships")
+      .withIndex("by_tenantId_and_userId", (q) =>
+        q.eq("tenantId", tenant._id).eq("userId", user._id)
+      )
+      .unique();
+
+    let membershipId: Id<"tenantMemberships">;
+    let role: "owner" | "game_master" | "player";
+    if (existing) {
+      if (existing.status === "suspended") {
+        throw new AppError("MEMBERSHIP_SUSPENDED");
+      }
+      // Active membership: reuse it and preserve the existing role
+      // (owner/game_master stays an admin; player stays a player).
+      role = existing.role;
+      membershipId = existing._id;
+    } else {
+      role = "player";
+      membershipId = await ctx.db.insert("tenantMemberships", {
+        tenantId: tenant._id,
+        userId: user._id,
+        role: "player",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // Report whether an account-backed profile already exists so the
+    // client can skip the profile form on replay/refresh.
+    const profile = await ctx.db
+      .query("players")
+      .withIndex("by_tenantId_and_userId", (q) =>
+        q.eq("tenantId", tenant._id).eq("userId", user._id)
+      )
+      .unique();
+    const profileComplete = !!profile && profile.profileKind === "account";
+
+    return { tenantId: tenant._id, membershipId, role, profileComplete };
+  },
+});
+
+/**
+ * Safely trim a required display field. Returns the trimmed string or
+ * `null` when it is empty after trimming. Used for fullName/nickname so
+ * a whitespace-only value is rejected identically to an empty one.
+ */
+function trimRequired(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Create the caller's account-backed player profile for a tenant they
+ * are already a member of. The tenant is resolved server-side from its
+ * slug — never from a browser-supplied id — so a disabled/unknown slug
+ * fails closed with RESOURCE_NOT_FOUND. Exactly one account profile is
+ * permitted per (tenantId, userId); a replay returns the existing
+ * profile id. Legacy `legacy_unclaimed` rows are never matched or
+ * claimed — the account profile is always a fresh row linked to the
+ * authenticated user.
+ *
+ * Authorization is resolved through `requireTenantMembership` against
+ * the slug-resolved tenant, so a cross-tenant or non-member caller
+ * fails closed with FORBIDDEN. Only `AppError` is converted to
+ * `{success:false, error}` so the form can surface a toast; validation
+ * errors likewise return `{success:false}`.
+ */
+export const completeMyProfile = mutation({
+  args: {
+    slug: v.string(),
+    fullName: v.string(),
+    nickname: v.string(),
+  },
+  handler: async (ctx, args): Promise<
+    | CompleteMyProfileSuccess
+    | { success: false; error: string }
+  > => {
+    // Resolve the tenant strictly from its slug. A disabled, missing,
+    // or blank slug resolves to RESOURCE_NOT_FOUND without enumerating
+    // tenants. The browser never supplies the tenantId.
+    const trimmedSlug = args.slug.trim();
+    if (!trimmedSlug) {
+      return { success: false, error: "RESOURCE_NOT_FOUND" };
+    }
+    const tenant = await ctx.db
+      .query("tenants")
+      .withIndex("by_slug", (q) => q.eq("slug", trimmedSlug))
+      .unique();
+    if (!tenant || tenant.status !== "active") {
+      return { success: false, error: "RESOURCE_NOT_FOUND" };
+    }
+
+    // Resolve identity + active membership in one transactional step.
+    // `requireTenantMembership` re-derives the user from the token and
+    // confirms an active membership for the resolved tenant; its
+    // returned membership row carries the authenticated user's id.
+    let userId: Id<"users">;
+    try {
+      const membership = await requireTenantMembership(ctx, tenant._id);
+      userId = membership.userId;
+    } catch (error) {
+      if (error instanceof AppError) {
+        return { success: false, error: error.code };
+      }
+      throw error;
+    }
+
+    // Validate display names. Trim and reject blank values; do not
+    // touch the database before validation succeeds.
+    const fullName = trimRequired(args.fullName);
+    if (!fullName) {
+      return { success: false, error: "VALIDATION_ERROR: Full name is required." };
+    }
+    const nickname = trimRequired(args.nickname);
+    if (!nickname) {
+      return { success: false, error: "VALIDATION_ERROR: Nickname is required." };
+    }
+
+    const now = Date.now();
+
+    // Idempotent: if an account-backed profile already exists for this
+    // (tenantId, userId), return it. `.unique()` enforces the
+    // one-profile-per-user invariant inside the transaction.
+    const existing = await ctx.db
+      .query("players")
+      .withIndex("by_tenantId_and_userId", (q) =>
+        q.eq("tenantId", tenant._id).eq("userId", userId)
+      )
+      .unique();
+    if (existing && existing.profileKind === "account") {
+      return {
+        success: true,
+        playerId: existing._id,
+        profileComplete: true,
+      };
+    }
+    // A linked non-account profile for this user is a conflict; do not
+    // create a second linked profile.
+    if (existing) {
+      return { success: false, error: "CONFLICT" };
+    }
+
+    // Create a fresh account-backed profile. We deliberately do NOT
+    // look for a matching legacy_unclaimed row by contact info/name —
+    // automatic claiming is forbidden by the design. The legacy rows
+    // remain as-is and are reconciled only through explicit owner action.
+    const playerId = await ctx.db.insert("players", {
+      tenantId: tenant._id,
+      // Legacy display fields are kept populated so existing admin views
+      // and historical reads keep working during the compatibility window.
+      firstName: fullName,
+      lastName: "",
+      skillSource: "manual",
+      manualSkillLevel: "Novice",
+      createdAt: now,
+      // Account-backed fields (Task 4.1 schema widening):
+      userId,
+      profileKind: "account",
+      fullName,
+      nickname,
+      updatedAt: now,
+    });
+
+    return { success: true, playerId, profileComplete: true };
   },
 });

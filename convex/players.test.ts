@@ -1219,4 +1219,733 @@ describe("Players", () => {
       }
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Task 4.2: account-backed player provisioning — joinWorkspace and
+  // completeMyProfile. Identity is always derived from the authenticated
+  // token; the tenant is always resolved from its slug. Membership and
+  // profile are idempotent and never auto-match legacy rows.
+  // -------------------------------------------------------------------------
+
+  describe("joinWorkspace + completeMyProfile (Task 4.2)", () => {
+    /**
+     * A plain player identity — no WorkOS admin organization/role claims,
+     * since a joining player is not an administrative org member. This
+     * mirrors how a real player's JWT looks after email verification.
+     */
+    function asPlayerIdentity(
+      t: ReturnType<typeof convexTest>,
+      tokenIdentifier: string,
+      email = "player@example.com"
+    ) {
+      return t.withIdentity({
+        tokenIdentifier,
+        subject: tokenIdentifier.replace(/[^a-zA-Z0-9]/g, "_"),
+        issuer: "https://api.workos.com",
+        name: "Player",
+        email,
+        // No organization_id / role claims — a plain player session.
+      });
+    }
+
+    /** Insert a tenant (active) plus a projected user row for the identity. */
+    async function seedTenantAndUser(
+      t: ReturnType<typeof convexTest>,
+      options: {
+        slug: string;
+        tokenIdentifier: string;
+        email?: string;
+        status?: "active" | "disabled";
+        workosOrganizationId?: string;
+      }
+    ): Promise<{ tenantId: Id<"tenants">; userId: Id<"users"> }> {
+      const tenantId = await t.run(async (ctx) =>
+        ctx.db.insert("tenants", {
+          name: `Club ${options.slug}`,
+          slug: options.slug,
+          timezone: "Asia/Manila",
+          workosOrganizationId:
+            options.workosOrganizationId ?? `org_${options.slug}`,
+          status: options.status ?? "active",
+          contactEmail: `gm@${options.slug}.example`,
+          createdAt: Date.now(),
+        })
+      );
+      const userId = await t.run(async (ctx) =>
+        ctx.db.insert("users", {
+          tokenIdentifier: options.tokenIdentifier,
+          workosUserId: options.tokenIdentifier.replace(/[^a-zA-Z0-9]/g, "_"),
+          email: options.email ?? "player@example.com",
+          emailNormalized: (options.email ?? "player@example.com").toLowerCase(),
+          tenantId,
+          createdAt: Date.now(),
+          lastSeenAt: Date.now(),
+        })
+      );
+      return { tenantId, userId };
+    }
+
+    test("a verified user joins by slug and gets exactly one active player membership", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-1";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "join-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      const result = await authed.mutation(api.players.joinWorkspace, {
+        slug: "join-club",
+      });
+
+      expect(result.tenantId).toBe(tenantId);
+      expect(result.role).toBe("player");
+
+      const memberships = await t.run(async (ctx) =>
+        ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].role).toBe("player");
+      expect(memberships[0].status).toBe("active");
+
+      // No profile is created by join alone.
+      const profiles = await t.run(async (ctx) =>
+        ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(profiles).toHaveLength(0);
+    });
+
+    test("replay (refresh / double-submit) is idempotent — never a second membership", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-idem";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "idem-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      const first = await authed.mutation(api.players.joinWorkspace, {
+        slug: "idem-club",
+      });
+      const second = await authed.mutation(api.players.joinWorkspace, {
+        slug: "idem-club",
+      });
+
+      expect(second.tenantId).toBe(first.tenantId);
+
+      const memberships = await t.run(async (ctx) =>
+        ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(memberships).toHaveLength(1);
+    });
+
+    test("joinWorkspace rejects duplicate linked player profiles", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-duplicate-profiles";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "duplicate-profile-club",
+        tokenIdentifier: token,
+      });
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        await ctx.db.insert("tenantMemberships", {
+          tenantId,
+          userId,
+          role: "player",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        for (const nickname of ["duplicate-one", "duplicate-two"]) {
+          await ctx.db.insert("players", {
+            tenantId,
+            userId,
+            profileKind: "account",
+            fullName: "Duplicate Player",
+            nickname,
+            firstName: "Duplicate Player",
+            lastName: "",
+            skillSource: "manual",
+            manualSkillLevel: "Novice",
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      });
+
+      const authed = asPlayerIdentity(t, token);
+      await expect(
+        authed.mutation(api.players.joinWorkspace, {
+          slug: "duplicate-profile-club",
+        })
+      ).rejects.toThrow(/unique|multiple/i);
+    });
+
+    test("joinWorkspace preserves an existing owner/game_master membership role", async () => {
+      // An admin who also plays must NOT be downgraded to player by joining.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-gm";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "gm-club",
+        tokenIdentifier: token,
+      });
+      // Seed an existing game_master membership (as reconciliation would).
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        await ctx.db.insert("tenantMemberships", {
+          tenantId,
+          userId,
+          role: "game_master",
+          status: "active",
+          workosOrganizationMembershipId: "wos_gm",
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      const result = await authed.mutation(api.players.joinWorkspace, {
+        slug: "gm-club",
+      });
+
+      // Role is preserved, not overwritten with player.
+      expect(result.role).toBe("game_master");
+      const memberships = await t.run(async (ctx) =>
+        ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].role).toBe("game_master");
+    });
+
+    test("joinWorkspace rejects a disabled tenant", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-disabled";
+      await seedTenantAndUser(t, {
+        slug: "disabled-club",
+        tokenIdentifier: token,
+        status: "disabled",
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      await expect(
+        authed.mutation(api.players.joinWorkspace, { slug: "disabled-club" })
+      ).rejects.toThrow(/RESOURCE_NOT_FOUND|disabled|FORBIDDEN/i);
+    });
+
+    test("joinWorkspace rejects an unknown slug without enumerating tenants", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-unknown";
+      await seedTenantAndUser(t, {
+        slug: "real-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      await expect(
+        authed.mutation(api.players.joinWorkspace, { slug: "no-such-club" })
+      ).rejects.toThrow(/RESOURCE_NOT_FOUND/i);
+    });
+
+    test("a suspended player membership cannot self-reactivate through joinWorkspace", async () => {
+      // A suspended player must stay suspended — joining throws
+      // MEMBERSHIP_SUSPENDED rather than reactivating the membership.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-suspended";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "suspended-club",
+        tokenIdentifier: token,
+      });
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        await ctx.db.insert("tenantMemberships", {
+          tenantId,
+          userId,
+          role: "player",
+          status: "suspended",
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      await expect(
+        authed.mutation(api.players.joinWorkspace, { slug: "suspended-club" })
+      ).rejects.toThrow(/MEMBERSHIP_SUSPENDED/);
+
+      // The membership remains suspended — not reactivated.
+      const memberships = await t.run(async (ctx) =>
+        ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].status).toBe("suspended");
+    });
+
+    test("a suspended administrator also remains suspended through joinWorkspace", async () => {
+      // Suspensions apply to admins too; an admin cannot self-reactivate
+      // by joining. The role is preserved but the status stays suspended.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-suspended-admin";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "suspended-admin-club",
+        tokenIdentifier: token,
+      });
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        await ctx.db.insert("tenantMemberships", {
+          tenantId,
+          userId,
+          role: "game_master",
+          status: "suspended",
+          workosOrganizationMembershipId: "wos_suspended_admin",
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      await expect(
+        authed.mutation(api.players.joinWorkspace, { slug: "suspended-admin-club" })
+      ).rejects.toThrow(/MEMBERSHIP_SUSPENDED/);
+
+      const memberships = await t.run(async (ctx) =>
+        ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].role).toBe("game_master");
+      expect(memberships[0].status).toBe("suspended");
+    });
+
+    test("an active owner/game_master membership is unchanged by joinWorkspace", async () => {
+      // Joining again must not downgrade or alter an existing active
+      // admin membership; it is reused as-is.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-active-gm";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "active-gm-club",
+        tokenIdentifier: token,
+      });
+      const seededAt = 12_345;
+      await t.run(async (ctx) => {
+        await ctx.db.insert("tenantMemberships", {
+          tenantId,
+          userId,
+          role: "game_master",
+          status: "active",
+          workosOrganizationMembershipId: "wos_active_gm",
+          createdAt: seededAt,
+          updatedAt: seededAt,
+        });
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      const result = await authed.mutation(api.players.joinWorkspace, {
+        slug: "active-gm-club",
+      });
+      expect(result.role).toBe("game_master");
+
+      const memberships = await t.run(async (ctx) =>
+        ctx.db
+          .query("tenantMemberships")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0].role).toBe("game_master");
+      expect(memberships[0].status).toBe("active");
+      expect(memberships[0].updatedAt).toBe(seededAt);
+    });
+
+    test("joinWorkspace rejects an unauthenticated / unprojected user", async () => {
+      const t = convexTest(schema, modules);
+      await seedTenantAndUser(t, {
+        slug: "unauth-club",
+        tokenIdentifier: "https://api.workos.com|someone-else",
+      });
+
+      // No identity attached → UNAUTHENTICATED.
+      await expect(
+        t.mutation(api.players.joinWorkspace, { slug: "unauth-club" })
+      ).rejects.toThrow(/UNAUTHENTICATED/);
+    });
+
+    test("completeMyProfile creates exactly one account-backed profile for the user", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-1";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "profile-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      await authed.mutation(api.players.joinWorkspace, { slug: "profile-club" });
+
+      const result = await authed.mutation(api.players.completeMyProfile, {
+        slug: "profile-club",
+        fullName: "  Alex Player  ",
+        nickname: "  ax  ",
+      });
+
+      expect(result.success).toBe(true);
+      expect((result as any).profileComplete).toBe(true);
+      expect((result as any).playerId).toBeDefined();
+
+      const profiles = await t.run(async (ctx) =>
+        ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(profiles).toHaveLength(1);
+      expect(profiles[0].profileKind).toBe("account");
+      expect(profiles[0].userId).toBe(userId);
+      // Names are safely trimmed.
+      expect(profiles[0].fullName).toBe("Alex Player");
+      expect(profiles[0].nickname).toBe("ax");
+    });
+
+    test("completeMyProfile is idempotent on replay (no duplicate profile)", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-idem";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "profile-idem-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      await authed.mutation(api.players.joinWorkspace, {
+        slug: "profile-idem-club",
+      });
+
+      const first = await authed.mutation(api.players.completeMyProfile, {
+        slug: "profile-idem-club",
+        fullName: "Sam Player",
+        nickname: "sam",
+      });
+      const second = await authed.mutation(api.players.completeMyProfile, {
+        slug: "profile-idem-club",
+        fullName: "Sam Player",
+        nickname: "sam",
+      });
+
+      expect(second.success).toBe(true);
+      expect((second as any).playerId).toBe((first as any).playerId);
+      const profiles = await t.run(async (ctx) =>
+        ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(profiles).toHaveLength(1);
+    });
+
+    test("completeMyProfile returns the stable CONFLICT code for a linked non-account row", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-conflict";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "profile-conflict-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      await authed.mutation(api.players.joinWorkspace, {
+        slug: "profile-conflict-club",
+      });
+      await t.run(async (ctx) =>
+        ctx.db.insert("players", {
+          tenantId,
+          userId,
+          profileKind: "legacy_unclaimed",
+          firstName: "Conflicting",
+          lastName: "Player",
+          skillSource: "manual",
+          manualSkillLevel: "Novice",
+          createdAt: Date.now(),
+        })
+      );
+
+      const result = await authed.mutation(api.players.completeMyProfile, {
+        slug: "profile-conflict-club",
+        fullName: "Conflicting Player",
+        nickname: "conflict",
+      });
+      expect(result).toEqual({ success: false, error: "CONFLICT" });
+    });
+
+    test("completeMyProfile rejects blank fullName and nickname after trimming", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-blank";
+      await seedTenantAndUser(t, {
+        slug: "blank-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      await authed.mutation(api.players.joinWorkspace, { slug: "blank-club" });
+
+      const blankFull = await authed.mutation(api.players.completeMyProfile, {
+        slug: "blank-club",
+        fullName: "   ",
+        nickname: "nick",
+      });
+      expect(blankFull.success).toBe(false);
+      expect((blankFull as any).error).toMatch(/full name/i);
+
+      const blankNick = await authed.mutation(api.players.completeMyProfile, {
+        slug: "blank-club",
+        fullName: "Real Name",
+        nickname: "   ",
+      });
+      expect(blankNick.success).toBe(false);
+      expect((blankNick as any).error).toMatch(/nickname/i);
+
+      // Nothing was created.
+      const playersCount = await t.run(async (ctx) =>
+        (await ctx.db.query("players").take(10)).length
+      );
+      expect(playersCount).toBe(0);
+    });
+
+    test("completeMyProfile rejects a caller without an active membership", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-nomember";
+      await seedTenantAndUser(t, {
+        slug: "nomember-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      // Deliberately do NOT join first.
+
+      const result = await authed.mutation(api.players.completeMyProfile, {
+        slug: "nomember-club",
+        fullName: "No Member",
+        nickname: "nm",
+      });
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/FORBIDDEN|UNAUTHENTICATED|MEMBERSHIP/i);
+    });
+
+    test("completeMyProfile never claims a matching legacy_unclaimed profile by contact/name", async () => {
+      // A legacy row with the same email/name exists. The new account
+      // profile must be a SEPARATE account row; the legacy row is left
+      // untouched and unclaimed.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-legacy";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "legacy-club",
+        tokenIdentifier: token,
+        email: "same@example.com",
+      });
+      const legacyId = await seedPlayer(t, tenantId, {
+        firstName: "Same",
+        lastName: "Name",
+        email: "same@example.com",
+      });
+      // Mark it legacy (as the Task 4.1 migration would).
+      await t.run(async (ctx) =>
+        ctx.db.patch(legacyId, { profileKind: "legacy_unclaimed" })
+      );
+
+      const authed = asPlayerIdentity(t, token, "same@example.com");
+      await authed.mutation(api.players.joinWorkspace, { slug: "legacy-club" });
+      const result = await authed.mutation(api.players.completeMyProfile, {
+        slug: "legacy-club",
+        fullName: "Same Name",
+        nickname: "same",
+      });
+
+      expect(result.success).toBe(true);
+      expect((result as any).profileComplete).toBe(true);
+
+      // Two distinct rows: the legacy one (still unclaimed, no userId) and
+      // the new account row linked to the authenticated user.
+      const allPlayers = await t.run(async (ctx) =>
+        ctx.db
+          .query("players")
+          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+          .take(10)
+      );
+      expect(allPlayers).toHaveLength(2);
+      const legacy = allPlayers.find((p) => p._id === legacyId);
+      const account = allPlayers.find((p) => p._id === (result as any).playerId);
+      expect(legacy?.profileKind).toBe("legacy_unclaimed");
+      expect(legacy?.userId).toBeUndefined();
+      expect(account?.profileKind).toBe("account");
+      expect(account?.userId).toBe(userId);
+    });
+
+    test("cross-tenant isolation: a membership/profile in tenant A is not visible in tenant B", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|join-x-tenant";
+      const a = await seedTenantAndUser(t, {
+        slug: "club-a-xt",
+        tokenIdentifier: token,
+        workosOrganizationId: "org_club_a_xt",
+      });
+      // Tenant B exists with the same slug-free name but the user has no
+      // membership there.
+      const bTenantId = await t.run(async (ctx) =>
+        ctx.db.insert("tenants", {
+          name: "Club B",
+          slug: "club-b-xt",
+          timezone: "Asia/Manila",
+          workosOrganizationId: "org_club_b_xt",
+          status: "active",
+          contactEmail: "gm@club-b-xt.example",
+          createdAt: Date.now(),
+        })
+      );
+      const authed = asPlayerIdentity(t, token);
+
+      // Join + complete profile in tenant A only.
+      await authed.mutation(api.players.joinWorkspace, { slug: "club-a-xt" });
+      await authed.mutation(api.players.completeMyProfile, {
+        slug: "club-a-xt",
+        fullName: "Cross Player",
+        nickname: "xp",
+      });
+
+      // Attempting to complete a profile in tenant B must fail: the user
+      // has no membership there.
+      const blocked = await authed.mutation(api.players.completeMyProfile, {
+        slug: "club-b-xt",
+        fullName: "Cross Player",
+        nickname: "xp",
+      });
+      expect(blocked.success).toBe(false);
+      expect((blocked as any).error).toMatch(/FORBIDDEN|MEMBERSHIP/i);
+
+      // Tenant B has no profile for this user.
+      const bProfiles = await t.run(async (ctx) =>
+        ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", bTenantId).eq("userId", a.userId)
+          )
+          .take(5)
+      );
+      expect(bProfiles).toHaveLength(0);
+    });
+
+    test("completeMyProfile rejects raw browser-supplied tenantId and userId", async () => {
+      // The arg validator must not accept a `tenantId` or `userId` field.
+      // Convex rejects unknown keys at the validator boundary, so passing
+      // one throws before the handler runs — assert that rejection. This
+      // guards against a future field accidentally being added to the
+      // validator and re-authorizes the tenant only from its slug.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-validator";
+      await seedTenantAndUser(t, {
+        slug: "validator-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      await authed.mutation(api.players.joinWorkspace, { slug: "validator-club" });
+
+      await expect(
+        authed.mutation(api.players.completeMyProfile, {
+          // @ts-expect-error — tenantId is not a valid input
+          tenantId: "fake_tenant_id",
+          slug: "validator-club",
+          fullName: "Validator",
+          nickname: "val",
+        })
+      ).rejects.toThrow(/tenantId/i);
+
+      await expect(
+        authed.mutation(api.players.completeMyProfile, {
+          slug: "validator-club",
+          fullName: "Validator",
+          nickname: "val",
+          // @ts-expect-error — userId is not a valid input
+          userId: "fake_user_id",
+        })
+      ).rejects.toThrow(/userId/i);
+    });
+
+    test("completeMyProfile rejects a disabled tenant slug", async () => {
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-disabled";
+      await seedTenantAndUser(t, {
+        slug: "disabled-profile-club",
+        tokenIdentifier: token,
+        status: "disabled",
+      });
+      const authed = asPlayerIdentity(t, token);
+
+      const result = await authed.mutation(api.players.completeMyProfile, {
+        slug: "disabled-profile-club",
+        fullName: "Disabled Tenant",
+        nickname: "dt",
+      });
+      expect(result.success).toBe(false);
+      expect((result as any).error).toMatch(/RESOURCE_NOT_FOUND/i);
+    });
+
+    test("completeMyProfile replay creates only one profile", async () => {
+      // Replay (refresh / double-submit) must never create a second
+      // account-backed profile; the second call returns the first id.
+      const t = convexTest(schema, modules);
+      const token = "https://api.workos.com|profile-replay";
+      const { tenantId, userId } = await seedTenantAndUser(t, {
+        slug: "replay-club",
+        tokenIdentifier: token,
+      });
+      const authed = asPlayerIdentity(t, token);
+      await authed.mutation(api.players.joinWorkspace, { slug: "replay-club" });
+
+      const first = await authed.mutation(api.players.completeMyProfile, {
+        slug: "replay-club",
+        fullName: "Replay Player",
+        nickname: "rp",
+      });
+      const second = await authed.mutation(api.players.completeMyProfile, {
+        slug: "replay-club",
+        fullName: "Replay Player",
+        nickname: "rp",
+      });
+      expect(second.success).toBe(true);
+      expect((second as any).playerId).toBe((first as any).playerId);
+      const profiles = await t.run(async (ctx) =>
+        ctx.db
+          .query("players")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", tenantId).eq("userId", userId)
+          )
+          .take(5)
+      );
+      expect(profiles).toHaveLength(1);
+    });
+  });
 });

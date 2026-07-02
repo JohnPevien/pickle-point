@@ -152,31 +152,42 @@ export async function requireOwner(
 }
 
 /**
- * Returns the player's account-backed profile within the tenant.
- * Currently no `players.userId` link exists — that lands in Task 4.1.
- * This helper fails closed until the projection is in place.
+ * Returns the caller's linked account-backed player profile in a tenant.
+ * Resolves the authenticated user's active membership with
+ * `requireTenantMembership`, then reads the `players` compound index
+ * `by_tenantId_and_userId` with `.unique()` for the exact
+ * (tenantId, userId) pair. Only a `profileKind === "account"` profile is
+ * returned; a missing row or a legacy/unlinked profile fails closed with
+ * PROFILE_REQUIRED. Legacy rows are never matched through contact or
+ * display fields.
  */
 export async function requirePlayerProfile(
   ctx: Ctx,
   tenantId: Id<"tenants">
 ): Promise<Doc<"players">> {
-  await requireTenantMembership(ctx, tenantId);
-  // Phase 1 placeholder: until Task 4.1 wires `players.userId`, no
-  // caller can be sure which profile is theirs. Fail closed so any
-  // caller that hits this surface surfaces a deterministic error.
-  throw new AppError("PROFILE_REQUIRED");
+  const membership = await requireTenantMembership(ctx, tenantId);
+  const profile = await ctx.db
+    .query("players")
+    .withIndex("by_tenantId_and_userId", (q) =>
+      q.eq("tenantId", tenantId).eq("userId", membership.userId)
+    )
+    .unique();
+  if (!profile || profile.profileKind !== "account") {
+    throw new AppError("PROFILE_REQUIRED");
+  }
+  return profile;
 }
 
 /**
  * Verify the caller may act on a player row in the tenant derived
- * from the player id. Only admin roles (owner / game_master) may
- * currently act on another tenant's player. Non-admin members
- * fail closed until Task 4.1 wires `players.userId`.
- *
- * The admin path is validated via `requireRole`, which automatically
- * runs the trusted WorkOS claim check for owner / game_master. There
- * is no caller-controllable opt-out — the admin path cannot bypass
- * claim validation.
+ * from the player id. An account profile linked to the authenticated
+ * user is owned by that user directly. Any other row is only reachable
+ * through the admin path (owner / game_master), which `requireRole`
+ * validates against the trusted WorkOS organization/role claims so a
+ * stale local projection cannot grant authority after WorkOS revokes
+ * the role. Unrelated players and non-members fail closed with FORBIDDEN.
+ * A missing player throws RESOURCE_NOT_FOUND rather than returning null,
+ * so no caller can distinguish "exists but forbidden" from "absent".
  */
 export async function requireOwnPlayer(
   ctx: Ctx,
@@ -186,6 +197,24 @@ export async function requireOwnPlayer(
   if (!player) {
     throw new AppError("RESOURCE_NOT_FOUND");
   }
+
+  // Resolve the caller's authenticated user + active membership in the
+  // player's tenant. A non-member fails closed here (FORBIDDEN /
+  // MEMBERSHIP_SUSPENDED) before the ownership / admin path is tried.
+  const membership = await requireTenantMembership(ctx, player.tenantId);
+
+  // Ownership: the player is an account profile linked to this user.
+  if (
+    player.profileKind === "account" &&
+    player.userId !== undefined &&
+    player.userId === membership.userId
+  ) {
+    const user = await requireAuthenticatedUser(ctx);
+    return { player, user, membership };
+  }
+
+  // Otherwise the caller needs an admin role, validated through
+  // `requireRole` so the trusted WorkOS claims are still checked.
   const admin = await requireRole(ctx, player.tenantId, ["owner", "game_master"]);
   return { player, ...admin };
 }

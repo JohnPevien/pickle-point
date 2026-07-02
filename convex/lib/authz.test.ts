@@ -418,7 +418,10 @@ describe("Authorization helpers", () => {
     ).rejects.toThrow("FORBIDDEN");
   });
 
-  test("requireOwnPlayer rejects player-role callers (fail closed until Task 4.1)", async () => {
+  test("requireOwnPlayer rejects player-role callers acting on a row they do not own", async () => {
+    // A player with no account link to this row (and no admin role) is
+    // rejected with FORBIDDEN — the ownership path does not match and
+    // the admin path requires owner/game_master.
     const t = convexTest(schema, modules);
     const player = await seedTenantAndUser(t, "player5");
     await insertMembership(t, player, "player");
@@ -646,6 +649,154 @@ describe("Authorization helpers", () => {
         playerId: playerRow as any,
       })
     ).resolves.toMatchObject({ tenantId: owner.tenantId });
+  });
+
+  // --- Task 4.1: account-backed ownership / profile resolution ---------
+
+  /** Seed an account-backed player row linked to `userId`. */
+  async function seedAccountPlayer(
+    t: ReturnType<typeof convexTest>,
+    tenantId: any,
+    userId: any
+  ): Promise<any> {
+    return await t.run(async (ctx) =>
+      ctx.db.insert("players", {
+        tenantId: tenantId as any,
+        firstName: "Account",
+        lastName: "Player",
+        skillSource: "manual",
+        manualSkillLevel: "Novice",
+        createdAt: Date.now(),
+        userId: userId as any,
+        profileKind: "account",
+        fullName: "Account Player",
+        nickname: "acct",
+        updatedAt: Date.now(),
+      })
+    );
+  }
+
+  test("requirePlayerProfile returns the linked account profile", async () => {
+    const t = convexTest(schema, modules);
+    const member = await seedTenantAndUser(t, "profile-ok");
+    await insertMembership(t, member, "player");
+    const playerId = await seedAccountPlayer(t, member.tenantId, member.userId);
+    const authed = t.withIdentity(workosIdentityFor("profile-ok", { role: "player" }));
+    await expect(
+      authed.query(internal.authzProbe.requirePlayerProfileProbe, {
+        tenantId: member.tenantId as any,
+      })
+    ).resolves.toMatchObject({ id: playerId });
+  });
+
+  test("requirePlayerProfile rejects a legacy/unlinked profile with PROFILE_REQUIRED", async () => {
+    // A legacy_unclaimed row linked to no user must not satisfy the
+    // account-profile requirement, even for a member of the tenant.
+    const t = convexTest(schema, modules);
+    const member = await seedTenantAndUser(t, "profile-legacy");
+    await insertMembership(t, member, "player");
+    await t.run(async (ctx) =>
+      ctx.db.insert("players", {
+        tenantId: member.tenantId as any,
+        firstName: "Legacy",
+        lastName: "Player",
+        skillSource: "manual",
+        manualSkillLevel: "Novice",
+        createdAt: Date.now(),
+        profileKind: "legacy_unclaimed",
+      })
+    );
+    const authed = t.withIdentity(workosIdentityFor("profile-legacy", { role: "player" }));
+    await expect(
+      authed.query(internal.authzProbe.requirePlayerProfileProbe, {
+        tenantId: member.tenantId as any,
+      })
+    ).rejects.toThrow("PROFILE_REQUIRED");
+  });
+
+  test("requireOwnPlayer: a linked player owns their account profile", async () => {
+    // A player whose account profile is linked to their authenticated
+    // user is admitted directly — no admin role needed, and no WorkOS
+    // admin claims are required for self-service on their own row.
+    const t = convexTest(schema, modules);
+    const member = await seedTenantAndUser(t, "own-account");
+    await insertMembership(t, member, "player");
+    const playerRow = await seedAccountPlayer(t, member.tenantId, member.userId);
+    // Plain player session — no organization_id / role claims.
+    const authed = t.withIdentity(workosIdentityFor("own-account", { role: "player" }));
+    await expect(
+      authed.query(internal.authzProbe.requireOwnPlayerProbe, {
+        playerId: playerRow as any,
+      })
+    ).resolves.toMatchObject({ tenantId: member.tenantId });
+  });
+
+  test("requireOwnPlayer: another player's account profile is forbidden", async () => {
+    // Player A cannot act on player B's account profile; A has no admin
+    // role and is not the linked user.
+    const t = convexTest(schema, modules);
+    const alice = await seedTenantAndUser(t, "alice");
+    const bob = await seedTenantAndUser(t, "bob");
+    await insertMembership(t, alice, "player");
+    await insertMembership(t, bob, "player");
+    // Bob's account profile.
+    const bobPlayer = await seedAccountPlayer(t, bob.tenantId, bob.userId);
+    const aliceAuth = t.withIdentity(workosIdentityFor("alice", { role: "player" }));
+    await expect(
+      aliceAuth.query(internal.authzProbe.requireOwnPlayerProbe, {
+        playerId: bobPlayer as any,
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireOwnPlayer: a legacy/unlinked profile is not owned by an arbitrary player", async () => {
+    // A player cannot claim a legacy row as their own; with no userId
+    // link the ownership path fails and the admin path rejects a player.
+    const t = convexTest(schema, modules);
+    const member = await seedTenantAndUser(t, "legacy-own");
+    await insertMembership(t, member, "player");
+    const legacyRow = await t.run(async (ctx) =>
+      ctx.db.insert("players", {
+        tenantId: member.tenantId as any,
+        firstName: "Legacy",
+        lastName: "Row",
+        skillSource: "manual",
+        manualSkillLevel: "Novice",
+        createdAt: Date.now(),
+        profileKind: "legacy_unclaimed",
+      })
+    );
+    const authed = t.withIdentity(workosIdentityFor("legacy-own", { role: "player" }));
+    await expect(
+      authed.query(internal.authzProbe.requireOwnPlayerProbe, {
+        playerId: legacyRow as any,
+      })
+    ).rejects.toThrow("FORBIDDEN");
+  });
+
+  test("requireOwnPlayer: a suspended member cannot act on their own account profile", async () => {
+    // Suspension blocks even the ownership path: requireTenantMembership
+    // throws MEMBERSHIP_SUSPENDED before ownership is considered.
+    const t = convexTest(schema, modules);
+    const member = await seedTenantAndUser(t, "own-suspended");
+    await t.run(async (c) =>
+      c.db.insert("tenantMemberships", {
+        tenantId: member.tenantId as any,
+        userId: member.userId as any,
+        role: "player",
+        status: "suspended",
+        workosOrganizationMembershipId: `wos_own-suspended_player`,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+    const playerRow = await seedAccountPlayer(t, member.tenantId, member.userId);
+    const authed = t.withIdentity(workosIdentityFor("own-suspended", { role: "player" }));
+    await expect(
+      authed.query(internal.authzProbe.requireOwnPlayerProbe, {
+        playerId: playerRow as any,
+      })
+    ).rejects.toThrow("MEMBERSHIP_SUSPENDED");
   });
 });
 
