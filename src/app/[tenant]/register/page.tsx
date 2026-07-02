@@ -1,18 +1,15 @@
 import { RegistrationForm } from "@/components/forms/RegistrationForm";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "../../../../convex/_generated/api";
-import { notFound } from "next/navigation";
 import Image from "next/image";
+import { resolveTenantOrNotFound } from "@/lib/tenant/server";
 
 export default async function RegisterPage({ params }: { params: Promise<{ tenant: string }> }) {
   const { tenant } = await params;
 
-  // Retrieve tenant branding configurations from Convex
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
-
-  if (!tenantData) {
-    notFound();
-  }
+  // The [tenant] route parameter is a workspace slug; resolve it to the
+  // trusted tenant id server-side. Unknown/disabled slugs 404 here.
+  const tenantData = await resolveTenantOrNotFound(tenant);
 
   // Fetch the registration-open tournament for this tenant from Convex.
   const activeTournament = await fetchQuery(api.tournaments.getActiveTournament, { tenantId: tenantData._id });

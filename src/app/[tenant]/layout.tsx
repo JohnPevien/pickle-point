@@ -1,7 +1,6 @@
-import { fetchQuery } from "convex/nextjs";
-import { api } from "../../../convex/_generated/api";
 import { notFound } from "next/navigation";
 import React from "react";
+import { resolveTenantBySlug } from "@/lib/tenant/server";
 
 export default async function TenantLayout({
   children,
@@ -12,8 +11,10 @@ export default async function TenantLayout({
 }) {
   const { tenant } = await params;
 
-  // Query tenant configuration from Convex
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
+  // The [tenant] route parameter is a workspace slug, never a Convex
+  // tenant id. Resolve it server-side through the active-only public
+  // projection; an unknown/disabled slug surfaces a public 404.
+  const tenantData = await resolveTenantBySlug(tenant);
 
   if (!tenantData) {
     notFound();

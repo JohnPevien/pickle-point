@@ -24,7 +24,7 @@ async function getAuthorizedWorkspace(tenant: string) {
     { token: auth.accessToken }
   );
 
-  if (!currentWorkspace || currentWorkspace.tenant._id !== tenant) {
+  if (!currentWorkspace || currentWorkspace.tenant.slug !== tenant) {
     notFound();
   }
 

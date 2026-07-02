@@ -1,8 +1,8 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "../../../../../convex/_generated/api";
-import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/admin/DashboardView";
 import { requireWorkosAuth } from "@/lib/auth/server";
+import { resolveTenantOrNotFound } from "@/lib/tenant/server";
 
 export default async function AdminDashboardPage({
   params,
@@ -11,11 +11,7 @@ export default async function AdminDashboardPage({
 }) {
   const { tenant } = await params;
 
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
-
-  if (!tenantData) {
-    notFound();
-  }
+  const tenantData = await resolveTenantOrNotFound(tenant);
 
   const auth = await requireWorkosAuth();
   const allTournaments = await fetchQuery(

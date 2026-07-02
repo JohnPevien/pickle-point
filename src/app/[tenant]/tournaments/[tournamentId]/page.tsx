@@ -4,6 +4,7 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { LiveBracketView } from "@/components/open-play/LiveBracketView";
+import { resolveTenantOrNotFound } from "@/lib/tenant/server";
 
 export default async function PublicTournamentPage({
   params,
@@ -12,8 +13,7 @@ export default async function PublicTournamentPage({
 }) {
   const { tenant, tournamentId } = await params;
 
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
-  if (!tenantData) notFound();
+  const tenantData = await resolveTenantOrNotFound(tenant);
 
   const view = await fetchQuery(api.tournaments.getTournamentView, {
     tenantId: tenantData._id,

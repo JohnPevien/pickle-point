@@ -1,7 +1,5 @@
-import { fetchQuery } from "convex/nextjs";
-import { notFound } from "next/navigation";
-import { api } from "../../../../../convex/_generated/api";
 import { VenueAdminView } from "@/components/admin/VenueAdminView";
+import { resolveTenantOrNotFound } from "@/lib/tenant/server";
 
 export default async function AdminVenuesPage({
   params,
@@ -9,11 +7,7 @@ export default async function AdminVenuesPage({
   params: Promise<{ tenant: string }>;
 }) {
   const { tenant } = await params;
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
-
-  if (!tenantData) {
-    notFound();
-  }
+  const tenantData = await resolveTenantOrNotFound(tenant);
 
   return (
     <main className="container mx-auto space-y-6 px-4 py-8">

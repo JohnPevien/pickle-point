@@ -27,6 +27,10 @@ const docsSearchMocks = vi.hoisted(() => {
 
 const navigationMocks = vi.hoisted(() => ({
   redirect: vi.fn((url: string) => ({ kind: "redirect", url })),
+  notFound: vi.fn(() => {
+    // Mirror Next.js: `notFound()` throws an opaque error to bail out.
+    throw new Error("NEXT_NOT_FOUND");
+  }),
 }));
 
 const nextHeadersMocks = vi.hoisted(() => ({
@@ -50,6 +54,7 @@ vi.mock("next/headers", () => nextHeadersMocks);
 vi.mock("../../../convex/_generated/api", () => ({
   api: {
     callback: { reconcileWorkosCallback: "api.callback.reconcileWorkosCallback" },
+    tenants: { getPublicBySlug: "api.tenants.getPublicBySlug" },
   },
 }));
 
@@ -140,6 +145,10 @@ beforeEach(() => {
   docsSearchMocks.createFromSource.mockReturnValue({ GET: docsSearchMocks.searchGet });
   navigationMocks.redirect.mockReset();
   navigationMocks.redirect.mockImplementation((url: string) => ({ kind: "redirect", url }));
+  navigationMocks.notFound.mockReset();
+  navigationMocks.notFound.mockImplementation(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  });
   nextHeadersMocks.headers.mockReset();
   nextHeadersMocks.headers.mockResolvedValue(new Headers());
   convexMocks.fetchQuery.mockReset();
@@ -555,5 +564,97 @@ describe("auth token route", () => {
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ accessToken: null });
+  });
+});
+
+// -------------------------------------------------------------------------
+// Task 4.3: server-side tenant resolution by slug. The [tenant] route
+// parameter is a workspace slug, never a Convex tenant id. The resolver
+// reads `tenants.getPublicBySlug` (active-only public projection) and
+// returns the trusted tenant doc so layouts/pages pass only the resolved
+// `_id` to backend calls. Unknown/disabled slugs surface as `null` so the
+// caller can invoke Next.js `notFound()`.
+// -------------------------------------------------------------------------
+
+describe("resolveTenantBySlug (Task 4.3)", () => {
+  test("resolves an active tenant by its slug and returns the public projection", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    const tenant = {
+      _id: "tenant_123",
+      slug: "test-club",
+      name: "Test Club",
+      timezone: "Asia/Manila",
+    };
+    convexMocks.fetchQuery.mockResolvedValue(tenant);
+
+    const { resolveTenantBySlug } = await import("@/lib/tenant/server");
+    const result = await resolveTenantBySlug("test-club");
+
+    // The slug is read server-side via the public-by-slug query — never
+    // by casting the route parameter to a tenant id.
+    expect(convexMocks.fetchQuery).toHaveBeenCalledWith(
+      "api.tenants.getPublicBySlug",
+      { slug: "test-club" },
+    );
+    expect(result).toEqual(tenant);
+  });
+
+  test("returns null for an unknown slug so the caller can notFound()", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    convexMocks.fetchQuery.mockResolvedValue(null);
+
+    const { resolveTenantBySlug } = await import("@/lib/tenant/server");
+    const result = await resolveTenantBySlug("no-such-club");
+
+    expect(result).toBeNull();
+    expect(navigationMocks.notFound).not.toHaveBeenCalled();
+  });
+
+  test("returns null for a disabled tenant slug", async () => {
+    // `getPublicBySlug` already collapses disabled/legacy rows to null;
+    // the resolver must not second-guess that and must not expose a
+    // disabled tenant to the layout.
+    setWorkosEnv(completeWorkosEnv);
+    convexMocks.fetchQuery.mockResolvedValue(null);
+
+    const { resolveTenantBySlug } = await import("@/lib/tenant/server");
+    const result = await resolveTenantBySlug("disabled-club");
+
+    expect(result).toBeNull();
+  });
+
+  test("resolveTenantOrNotFound throws notFound() for an unknown slug", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    convexMocks.fetchQuery.mockResolvedValue(null);
+
+    const { resolveTenantOrNotFound } = await import("@/lib/tenant/server");
+    await expect(resolveTenantOrNotFound("no-such-club")).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(navigationMocks.notFound).toHaveBeenCalledTimes(1);
+  });
+
+  test("resolveTenantOrNotFound returns the tenant for a known active slug", async () => {
+    setWorkosEnv(completeWorkosEnv);
+    const tenant = { _id: "tenant_abc", slug: "active-club", name: "Active", timezone: "UTC" };
+    convexMocks.fetchQuery.mockResolvedValue(tenant);
+
+    const { resolveTenantOrNotFound } = await import("@/lib/tenant/server");
+    const result = await resolveTenantOrNotFound("active-club");
+    expect(result).toEqual(tenant);
+    expect(navigationMocks.notFound).not.toHaveBeenCalled();
+  });
+
+  test("the slug is never cast to a Convex tenant id — fetchQuery receives a slug string", async () => {
+    // Regression guard: the route parameter must flow as a slug into
+    // `getPublicBySlug`, never be normalized/cast into an Id<"tenants">
+    // and passed to a by-id query.
+    setWorkosEnv(completeWorkosEnv);
+    convexMocks.fetchQuery.mockResolvedValue(null);
+
+    const { resolveTenantBySlug } = await import("@/lib/tenant/server");
+    await resolveTenantBySlug("test-club");
+
+    const [ref, args] = convexMocks.fetchQuery.mock.calls[0];
+    expect(ref).toBe("api.tenants.getPublicBySlug");
+    expect(args).toEqual({ slug: "test-club" });
   });
 });

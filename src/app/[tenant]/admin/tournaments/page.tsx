@@ -1,9 +1,7 @@
-import { fetchQuery } from "convex/nextjs";
-import { api } from "../../../../../convex/_generated/api";
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { TournamentListView } from "@/components/admin/TournamentListView";
+import { resolveTenantOrNotFound } from "@/lib/tenant/server";
 
 export default async function AdminTournamentsPage({
   params,
@@ -12,8 +10,7 @@ export default async function AdminTournamentsPage({
 }) {
   const { tenant } = await params;
 
-  const tenantData = await fetchQuery(api.tenants.getById, { tenantId: tenant });
-  if (!tenantData) notFound();
+  const tenantData = await resolveTenantOrNotFound(tenant);
 
   return (
     <main className="container mx-auto space-y-6 px-4 py-8">
