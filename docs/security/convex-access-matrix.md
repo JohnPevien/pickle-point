@@ -115,6 +115,12 @@ Thin `internalQuery` wrappers that exercise `convex/lib/authz.ts` from convex-te
 |---|---|---|---|---|---|---|---|
 | `migrations/matchHistoryParticipants.backfillTenant` | internalMutation | `internal` (operator-invoked) | `tenantId`, `cursor?`, `batchSize?`, `dryRun?` | Explicit `tenantId`; bounded pagination through `matchHistory.by_tenant`; reference tenant copied from each source match | n/a (internal migration) | n/a — returns migration counts/cursor only; idempotently creates missing `matchHistoryParticipants` rows | ✅ 3.2 |
 
+## migrations/playerProfiles.ts (Phase 4.1)
+
+| Function | Kind | Access | Args | Tenant path | Helper | Private fields returned | Phase 3 task |
+|---|---|---|---|---|---|---|---|
+| `migrations/playerProfiles.backfillTenant` | internalMutation | `internal` (operator-invoked) | `tenantId`, `cursor?`, `batchSize?` | Explicit `tenantId` only; never `.first()` across tenants; bounded native `.paginate()` (opaque `continueCursor`) through `players.by_tenantId` | n/a (internal migration) | n/a — returns `{ scanned, patched, skippedAlreadyProfiled, isDone, cursor }` only; idempotently marks legacy rows `legacy_unclaimed`, never infers `userId`, preserves account-backed rows, and THROWS `CONFLICT` (rolling back the batch) when duplicate `(tenantId, userId)` account-backed profiles exist | ✅ 4.1 |
+
 ## openPlaySessions.ts
 
 | Function | Kind | Access | Args | Tenant path | Helper | Private fields returned today | Phase 3 task |

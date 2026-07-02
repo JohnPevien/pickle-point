@@ -158,7 +158,7 @@ export const listByTenant = query({
     const opts = args.paginationOpts ?? { numItems, cursor: null };
     return await ctx.db
       .query("players")
-      .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
       .order("asc")
       .paginate(opts);
   },

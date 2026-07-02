@@ -141,6 +141,32 @@ export default defineSchema({
   }).index("by_tenant", ["tenantId"]),
 
   // 7. Unified Players Directory (No anonymous players)
+  //
+  // Phase 4.1 widening (migration-safe):
+  // - `userId`, `profileKind`, `fullName`, `nickname`, `updatedAt` are
+  //   OPTIONAL during widening so legacy documents without them remain
+  //   valid. The design spec calls these fields out explicitly:
+  //     `userId?: Id<"users">`
+  //     `profileKind: "account" | "legacy_unclaimed"`
+  //     `fullName: string`
+  //     `nickname: string`
+  //     `createdAt: number` / `updatedAt: number`
+  //   They become required (for account-backed rows) in a later phase
+  //   after the backfill confirms every row is populated.
+  // - New account-backed profiles require `userId`. One account-backed
+  //   profile is permitted per (tenantId, userId); nickname is NOT
+  //   unique. Convex secondary indexes do NOT impose uniqueness — they
+  //   only order/look up rows. The `by_tenantId_and_userId` index
+  //   SUPPORTS the transactional uniqueness check: Task 4.2's profile
+  //   provisioning must read this index inside its mutation and reject a
+  //   second account profile for the same (tenantId, userId) before
+  //   inserting. The Phase 4.1 migration separately enforces the same
+  //   invariant on existing rows by throwing on duplicates.
+  // - Legacy `firstName`/`lastName` are retained so existing reads/writes
+  //   keep validating during the compatibility window. The previous
+  //   `by_tenant` index is renamed to the spec-named `by_tenantId`
+  //   (single-column tenant index) so the players table has exactly one
+  //   such index; Convex forbids two indexes over the same fields.
   players: defineTable({
     tenantId: v.id("tenants"),
     firstName: v.string(),
@@ -163,10 +189,20 @@ export default defineSchema({
     notes: v.optional(v.string()), // Emergency or private GM notes
     optIn: v.optional(v.boolean()), // Consent flag
     createdAt: v.number(),
+    // Phase 4.1 widening fields — optional during widening.
+    userId: v.optional(v.id("users")),
+    profileKind: v.optional(
+      v.union(v.literal("account"), v.literal("legacy_unclaimed"))
+    ),
+    fullName: v.optional(v.string()),
+    nickname: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
   })
-    .index("by_tenant", ["tenantId"])
+    .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
-    .index("by_tenantId_and_phone", ["tenantId", "phone"]),
+    .index("by_tenantId_and_phone", ["tenantId", "phone"])
+    .index("by_userId", ["userId"])
+    .index("by_tenantId_and_userId", ["tenantId", "userId"]),
 
   // 8. Open Play Sessions
   openPlaySessions: defineTable({
